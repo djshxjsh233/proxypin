@@ -199,9 +199,9 @@ class _QrReaderViewState extends State<QeCodeScanView> with TickerProviderStateM
                   children: <Widget>[
                     IconButton(
                       onPressed: () async {
-                        final file = await FilePicker.pickFile(type: FileType.image);
-                        if (file == null) return;
-                        final path = file.path;
+                        final result = await FilePicker.pickFiles(type: FileType.image);
+                        if (result == null || result.files.isEmpty) return;
+                        final path = result.files.single.path;
                         if (path == null) return;
                         scanImage(path);
                       },

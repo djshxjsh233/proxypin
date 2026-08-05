@@ -70,7 +70,8 @@ class _FavoritesState extends State<MobileFavorites> {
 
   Future<String?> _materializePickedFile(PlatformFile file) async {
     if (file.path != null) return file.path!;
-    final bytes = await file.readAsBytes();
+    final bytes = file.bytes;
+    if (bytes == null) return null;
     final tmp = await File('${Directory.systemTemp.path}/${file.name}').create();
     await tmp.writeAsBytes(bytes, flush: true);
     return tmp.path;
