@@ -27,10 +27,13 @@ import 'package:flutter_toastr/flutter_toastr.dart';
 import 'package:proxypin/l10n/app_localizations.dart';
 import 'package:proxypin/network/channel/host_port.dart';
 import 'package:proxypin/network/http/content_type.dart';
+import 'package:proxypin/network/components/manager/environment_manager.dart';
 import 'package:proxypin/network/http/http.dart';
 import 'package:proxypin/network/http/http_client.dart';
 import 'package:proxypin/network/http/http_headers.dart';
 import 'package:proxypin/network/util/logger.dart';
+import 'package:proxypin/ui/component/env_var_highlight.dart';
+import 'package:proxypin/ui/component/search/finder.dart';
 import 'package:proxypin/ui/component/split_view.dart';
 import 'package:proxypin/ui/component/state_component.dart';
 import 'package:proxypin/ui/configuration.dart';
@@ -252,11 +255,12 @@ class RequestEditorState extends State<RequestEditor> {
     var currentState = requestLineKey.currentState!;
     var headers = requestKey.currentState?.getHeaders();
     var requestBody = requestKey.currentState?.getBody();
-    String url = currentState.requestUrl.text;
+    String url = _renderEnv(currentState.requestUrl.text);
+    _renderHeadersInPlace(headers);
     HttpRequest request = HttpRequest(currentState.requestMethod, Uri.parse(url).toString(),
         protocolVersion: this.request?.protocolVersion ?? "HTTP/1.1");
     request.headers.addAll(headers);
-    request.body = requestBody == null ? null : utf8.encode(requestBody);
+    request.body = requestBody == null ? null : utf8.encode(_renderEnv(requestBody));
 
     responseKey.currentState?.change(null);
     responseChange.value = 0;
@@ -282,26 +286,40 @@ class RequestEditorState extends State<RequestEditor> {
       var currentState = requestLineKey.currentState!;
       var headers = requestKey.currentState?.getHeaders();
       var requestBody = requestKey.currentState?.getBody();
-      String url = currentState.requestUrl.text;
+      String url = _renderEnv(currentState.requestUrl.text);
+      _renderHeadersInPlace(headers);
 
       if (request == null) return;
       HttpRequest newRequest = request!.copy(uri: url);
       newRequest.method = currentState.requestMethod;
       newRequest.headers.clear();
       newRequest.headers.addAll(headers);
-      newRequest.body = requestBody == null ? null : utf8.encode(requestBody);
+      newRequest.body = requestBody == null ? null : utf8.encode(_renderEnv(requestBody));
       widget.onExecuteRequest?.call(newRequest);
     } else if (widget.source == RequestEditorSource.breakpointResponse) {
       var headers = responseKey.currentState?.getHeaders();
       var responseBody = responseKey.currentState?.getBody();
+      _renderHeadersInPlace(headers);
 
       if (response == null) return;
       HttpResponse newResponse = response!.copy();
       newResponse.headers.clear();
       newResponse.headers.addAll(headers);
-      newResponse.body = responseBody == null ? null : utf8.encode(responseBody);
+      newResponse.body = responseBody == null ? null : utf8.encode(_renderEnv(responseBody));
       widget.onExecuteResponse?.call(newResponse);
     }
+  }
+
+  /// 用当前激活的环境变量渲染 `{{name}}`。EnvironmentManager 未加载或未启用时返回原值。
+  static String _renderEnv(String input) => EnvironmentManager.tryRender(input) ?? input;
+
+  /// 就地渲染 headers 每一项的 value。key 保持原样(用作变量占位符的场景极少)。
+  static void _renderHeadersInPlace(HttpHeaders? headers) {
+    headers?.forEach((_, values) {
+      for (int i = 0; i < values.length; i++) {
+        values[i] = _renderEnv(values[i]);
+      }
+    });
   }
 
   Future<void> curlParse() async {
@@ -709,7 +727,7 @@ class _RequestLine extends StatefulWidget {
 
 class _RequestLineState extends State<_RequestLine> {
   HttpMethod requestMethod = HttpMethod.get;
-  TextEditingController requestUrl = TextEditingController(text: "");
+  EnvHighlightTextEditingController requestUrl = EnvHighlightTextEditingController(text: "");
 
   @override
   void initState() {
@@ -814,14 +832,14 @@ class KeyValState extends State<KeyValWidget> with AutomaticKeepAliveClientMixin
     super.initState();
     widget.paramNotifier?.urlListener((url) => onChange(url));
     if (widget.params == null) {
-      var keyVal = KeyVal(TextEditingController(), TextEditingController());
+      var keyVal = KeyVal(TextEditingController(), EnvHighlightTextEditingController());
       _params.add(keyVal);
       return;
     }
 
     widget.params?.forEach((name, values) {
       for (var val in values) {
-        var keyVal = KeyVal(TextEditingController(text: name), TextEditingController(text: val));
+        var keyVal = KeyVal(TextEditingController(text: name), EnvHighlightTextEditingController(text: val));
         _params.add(keyVal);
       }
     });
@@ -842,7 +860,7 @@ class KeyValState extends State<KeyValWidget> with AutomaticKeepAliveClientMixin
       String key = splitFirst.first;
       String? val = splitFirst.length == 1 ? null : splitFirst.last;
       if (_params.length <= index) {
-        _params.add(KeyVal(TextEditingController(text: key), TextEditingController(text: val)));
+        _params.add(KeyVal(TextEditingController(text: key), EnvHighlightTextEditingController(text: val)));
         continue;
       }
 
@@ -878,7 +896,7 @@ class KeyValState extends State<KeyValWidget> with AutomaticKeepAliveClientMixin
     setState(() {
       headers?.forEach((name, values) {
         for (var val in values) {
-          var keyVal = KeyVal(TextEditingController(text: name), TextEditingController(text: val));
+          var keyVal = KeyVal(TextEditingController(text: name), EnvHighlightTextEditingController(text: val));
           _params.add(keyVal);
         }
       });
@@ -899,7 +917,7 @@ class KeyValState extends State<KeyValWidget> with AutomaticKeepAliveClientMixin
         matched.enabled = true;
         matched.value.text = value;
       } else {
-        _params.add(KeyVal(TextEditingController(text: name), TextEditingController(text: value)));
+        _params.add(KeyVal(TextEditingController(text: name), EnvHighlightTextEditingController(text: value)));
       }
     });
     notifierChange();
@@ -956,7 +974,7 @@ class KeyValState extends State<KeyValWidget> with AutomaticKeepAliveClientMixin
         child: Text(localizations.add, textAlign: TextAlign.center),
         onPressed: () {
           setState(() {
-            _params.add(KeyVal(TextEditingController(), TextEditingController()));
+            _params.add(KeyVal(TextEditingController(), EnvHighlightTextEditingController()));
           });
         },
       ));

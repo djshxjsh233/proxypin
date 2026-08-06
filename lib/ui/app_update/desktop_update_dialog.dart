@@ -58,8 +58,7 @@ class DesktopUpdateDialog extends StatelessWidget {
       if (!_backgroundDownload) return;
       final state = service.state.value;
       if (state.phase == DesktopUpdatePhase.readyToInstall ||
-          state.phase == DesktopUpdatePhase.failed ||
-          state.phase == DesktopUpdatePhase.cancelled) {
+          state.phase == DesktopUpdatePhase.failed) {
         _backgroundDownload = false;
         _clearBackgroundListener();
 
@@ -162,10 +161,10 @@ class DesktopUpdateDialog extends StatelessWidget {
             }
 
             if (state.phase == DesktopUpdatePhase.cancelled) {
-              return TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: Text(localizations.close),
-              );
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (context.mounted) Navigator.of(context).pop();
+              });
+              return const SizedBox.shrink();
             }
 
             if (state.phase == DesktopUpdatePhase.downloading) {

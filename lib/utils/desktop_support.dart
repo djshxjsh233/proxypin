@@ -10,30 +10,35 @@ import '../network/util/logger.dart';
 import '../ui/component/multi_window.dart';
 
 class DesktopSupport {
+  static const _minimumWindowSize = Size(1000, 600);
+
   static Future<void> initialize(AppConfiguration appConfiguration) async {
     try {
       await windowManager.ensureInitialized();
 
-      //设置窗口大小
-      Size windowSize =
-          appConfiguration.windowSize ?? (Platform.isMacOS ? const Size(1230, 750) : const Size(1100, 650));
-      WindowOptions windowOptions =
-          WindowOptions(minimumSize: const Size(1000, 600), size: windowSize, titleBarStyle: TitleBarStyle.hidden);
+      final defaultWindowSize = Platform.isMacOS ? const Size(1230, 750) : const Size(1100, 650);
+      final windowSize = _sanitizeWindowSize(appConfiguration.windowSize, defaultWindowSize);
+      appConfiguration.windowSize = windowSize;
 
-      Offset? windowPosition = appConfiguration.windowPosition;
-
+      final windowOptions = WindowOptions(
+        minimumSize: _minimumWindowSize,
+        size: windowSize,
+        titleBarStyle: TitleBarStyle.hidden,
+      );
       if (appConfiguration.themeMode != ThemeMode.system) {
-        windowManager.setBrightness(appConfiguration.themeMode == ThemeMode.dark ? Brightness.dark : Brightness.light);
+        await windowManager
+            .setBrightness(appConfiguration.themeMode == ThemeMode.dark ? Brightness.dark : Brightness.light);
       }
 
       await windowManager.waitUntilReadyToShow(windowOptions, () async {
-        if (windowPosition != null && await _isPositionVisible(windowPosition, windowSize)) {
-          await windowManager.setPosition(windowPosition);
+        final position = appConfiguration.windowPosition;
+        if (position != null && await _isPositionVisible(position, windowSize)) {
+          await windowManager.setPosition(position);
         } else {
-          //位置无效(如显示器已断开)时居中显示，避免窗口跑到屏幕外不可见
-          if (windowPosition != null) {
+          if (position != null) {
             appConfiguration.windowPosition = null;
           }
+          //位置无效(如显示器已断开)时居中显示，避免窗口跑到屏幕外不可见
           await windowManager.center();
         }
 
@@ -44,8 +49,28 @@ class DesktopSupport {
       windowManager.addListener(WindowChangeListener(appConfiguration));
       registerMethodHandler();
     } catch (e) {
-      logger.e("Error during desktop initialization: $e");
+      logger.e('Error during desktop initialization: $e');
     }
+  }
+
+  /// 修复配置文件中可能残留的无效窗口尺寸。
+  ///
+  /// 旧配置可能包含 0、负数、NaN、Infinity 或远大于当前显示器的尺寸。
+  /// 这些值会被 window_manager 直接用于创建窗口，Windows 上可能表现为
+  /// 白屏、窗口不可见或 Flutter surface 无法正常布局。
+  static Size _sanitizeWindowSize(Size? savedSize, Size defaultSize) {
+    if (savedSize == null || !savedSize.width.isFinite || !savedSize.height.isFinite) {
+      return defaultSize;
+    }
+
+    final width = savedSize.width.clamp(_minimumWindowSize.width, 3840.0);
+    final height = savedSize.height.clamp(_minimumWindowSize.height, 2160.0);
+    final sanitized = Size(width.toDouble(), height.toDouble());
+
+    if (sanitized != savedSize) {
+      logger.w('Invalid saved window size $savedSize, using $sanitized');
+    }
+    return sanitized;
   }
 
   /// 校验保存的窗口位置是否落在某个显示器的可见范围内。
@@ -53,7 +78,7 @@ class DesktopSupport {
   static Future<bool> _isPositionVisible(Offset position, Size windowSize) async {
     try {
       final displays = await screenRetriever.getAllDisplays();
-      if (displays.isEmpty) return false;
+      if (displays.isEmpty || !position.dx.isFinite || !position.dy.isFinite) return false;
 
       // 至少要有一部分标题栏在某个显示器内，才认为位置可用。
       const minVisible = 100.0;

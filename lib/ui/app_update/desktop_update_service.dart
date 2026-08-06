@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:proxypin/network/util/logger.dart';
+import 'package:proxypin/ui/app_update/constants.dart';
 import 'package:proxypin/ui/app_update/macos_zip_updater.dart';
 import 'package:proxypin/ui/app_update/remote_version_entity.dart';
 import 'package:proxypin/ui/app_update/windows_zip_updater.dart';
@@ -95,14 +96,8 @@ class DesktopUpdateService {
     _cancelRequested = false;
     state.value = DesktopUpdateState(phase: DesktopUpdatePhase.downloading, version: version, asset: asset);
 
-    HttpClient? client;
     File? tempFile;
     try {
-      final uri = Uri.tryParse(asset.downloadUrl);
-      if (uri == null) {
-        throw DesktopUpdateException(_t('下载地址无效', 'Invalid download URL'));
-      }
-
       final directory = await _updateDirectory();
       final fileName = _safeFileName(version.version, asset.installerType);
       final targetFile = File('${directory.path}${Platform.pathSeparator}$fileName');
@@ -123,9 +118,6 @@ class DesktopUpdateService {
       }
 
       tempFile = File('${targetFile.path}.part');
-      if (await tempFile.exists()) {
-        await tempFile.delete();
-      }
 
       state.value = state.value.copyWith(
         phase: DesktopUpdatePhase.downloading,
@@ -136,64 +128,35 @@ class DesktopUpdateService {
         clearError: true,
       );
 
-      client = HttpClient();
-      _httpClient = client;
-      client.userAgent = 'ProxyPin-Updater';
+      final urls = Constants.mirrorUrls(asset.downloadUrl);
+      for (var i = 0; i < urls.length; i++) {
+        if (i > 0) {
+          logger.i('[AppUpdate] retry with mirror: ${urls[i]}');
+          // 重试前重置下载文件
+          if (await tempFile.exists()) await tempFile.delete();
+        }
+        try {
+          await _downloadFromUrl(urls[i], tempFile, asset.size);
+          // 下载成功
+          if (await targetFile.exists()) await targetFile.delete();
+          await tempFile.rename(targetFile.path);
 
-      final request = await client.getUrl(uri);
-      final response = await request.close();
-      if (response.statusCode != 200) {
-        throw DesktopUpdateException(_t('下载失败 (HTTP ${response.statusCode})', 'Download failed (HTTP ${response.statusCode})'));
-      }
-
-      final totalBytes = response.contentLength > 0 ? response.contentLength : asset.size;
-      var received = 0;
-      final sink = tempFile.openWrite();
-      try {
-        await for (final chunk in response) {
-          if (_cancelRequested) {
-            throw const _CancelledException();
-          }
-          sink.add(chunk);
-          received += chunk.length;
+          final len = await targetFile.length();
           state.value = state.value.copyWith(
-            phase: DesktopUpdatePhase.downloading,
-            progress: totalBytes != null && totalBytes > 0 ? received / totalBytes : null,
-            receivedBytes: received,
-            totalBytes: totalBytes,
-            filePath: tempFile.path,
+            phase: DesktopUpdatePhase.readyToInstall,
+            progress: 1,
+            receivedBytes: len,
+            totalBytes: asset.size ?? len,
+            filePath: targetFile.path,
             clearError: true,
           );
+          return;
+        } on DesktopUpdateException catch (e) {
+          if (_cancelRequested) rethrow;
+          if (i < urls.length - 1) continue;
+          rethrow;
         }
-        await sink.flush();
-      } finally {
-        await sink.close();
       }
-
-      // 下载循环结束后再次确认未被取消, 避免取消后仍落地并覆盖 cancelled 状态。
-      if (_cancelRequested) {
-        throw const _CancelledException();
-      }
-
-      if (!await _verifyFile(tempFile, asset.size)) {
-        await _deleteFile(tempFile.path);
-        throw DesktopUpdateException(_t('下载文件校验失败', 'Downloaded file verification failed'));
-      }
-
-      if (await targetFile.exists()) {
-        await targetFile.delete();
-      }
-      await tempFile.rename(targetFile.path);
-
-      final len = await targetFile.length();
-      state.value = state.value.copyWith(
-        phase: DesktopUpdatePhase.readyToInstall,
-        progress: 1,
-        receivedBytes: len,
-        totalBytes: asset.size ?? len,
-        filePath: targetFile.path,
-        clearError: true,
-      );
     } on _CancelledException {
       await _deleteFile(tempFile?.path);
       state.value = state.value.copyWith(phase: DesktopUpdatePhase.cancelled);
@@ -201,15 +164,69 @@ class DesktopUpdateService {
       await _deleteFile(tempFile?.path);
       state.value = state.value.copyWith(phase: DesktopUpdatePhase.failed, errorMessage: e.message);
     } catch (e, stackTrace) {
+      if (_cancelRequested) {
+        await _deleteFile(tempFile?.path);
+        state.value = state.value.copyWith(phase: DesktopUpdatePhase.cancelled);
+        return;
+      }
       logger.e('DesktopUpdateService download failed', error: e, stackTrace: stackTrace);
       await _deleteFile(tempFile?.path);
       state.value = state.value.copyWith(phase: DesktopUpdatePhase.failed, errorMessage: _t('下载失败: $e', 'Download failed: $e'));
     } finally {
       try {
-        client?.close(force: true);
+        _httpClient?.close(force: true);
       } catch (_) {}
       _httpClient = null;
       _updating = false;
+    }
+  }
+
+  Future<void> _downloadFromUrl(String url, File tempFile, int? expectedSize) async {
+    final uri = Uri.tryParse(url);
+    if (uri == null) {
+      throw DesktopUpdateException(_t('下载地址无效', 'Invalid download URL'));
+    }
+
+    final client = HttpClient();
+    _httpClient = client;
+    client.userAgent = 'ProxyPin-Updater';
+
+    final request = await client.getUrl(uri);
+    final response = await request.close();
+    if (response.statusCode != 200) {
+      throw DesktopUpdateException(_t('下载失败 (HTTP ${response.statusCode})', 'Download failed (HTTP ${response.statusCode})'));
+    }
+
+    final totalBytes = response.contentLength > 0 ? response.contentLength : expectedSize;
+    var received = 0;
+    final sink = tempFile.openWrite();
+    try {
+      await for (final chunk in response) {
+        if (_cancelRequested) {
+          throw const _CancelledException();
+        }
+        sink.add(chunk);
+        received += chunk.length;
+        state.value = state.value.copyWith(
+          phase: DesktopUpdatePhase.downloading,
+          progress: totalBytes != null && totalBytes > 0 ? received / totalBytes : null,
+          receivedBytes: received,
+          totalBytes: totalBytes,
+          filePath: tempFile.path,
+          clearError: true,
+        );
+      }
+      await sink.flush();
+    } finally {
+      await sink.close();
+    }
+
+    if (_cancelRequested) {
+      throw const _CancelledException();
+    }
+
+    if (!await _verifyFile(tempFile, expectedSize)) {
+      throw DesktopUpdateException(_t('下载文件校验失败', 'Downloaded file verification failed'));
     }
   }
 

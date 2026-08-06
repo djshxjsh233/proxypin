@@ -19,7 +19,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_desktop_context_menu/flutter_desktop_context_menu.dart';
+import 'package:proxypin/ui/component/context_menu.dart';
 import 'package:flutter_toastr/flutter_toastr.dart';
 import 'package:proxypin/l10n/app_localizations.dart';
 import 'package:proxypin/network/bin/configuration.dart';
@@ -542,7 +542,7 @@ class _DomainRequestsState extends State<DomainRequests> {
   //domain title
   Widget _hostWidget(String title) {
     var host = GestureDetector(
-        onSecondaryTap: menu,
+        onSecondaryTapDown: (details) => menu(details),
         child: ListTile(
             minLeadingWidth: 25,
             leading: Icon(selected ? Icons.arrow_drop_down : Icons.arrow_right, size: 18),
@@ -571,29 +571,23 @@ class _DomainRequestsState extends State<DomainRequests> {
   }
 
   //域名右键菜单
-  void menu() {
-    Menu menu = Menu(items: [
-      MenuItem(
+  void menu(TapDownDetails details) {
+    showCustomContextMenu(context, details.globalPosition, [
+      ContextMenuItem.normal(
           label: localizations.copyHost,
-          onClick: (_) {
+          onClick: () {
             Clipboard.setData(ClipboardData(text: Uri.parse(widget.domain).host));
             FlutterToastr.show(localizations.copied, context);
           }),
-      MenuItem.separator(),
-      MenuItem(
-        label: localizations.domainFilter,
-        type: 'submenu',
-        submenu: hostFilterMenu(),
-      ),
-      MenuItem.separator(),
-      MenuItem(label: localizations.exportDomainHar, onClick: (_) => exportDomainHar()),
-      MenuItem.separator(),
-      MenuItem(label: localizations.repeatDomainRequests, onClick: (_) => repeatDomainRequests()),
-      MenuItem.separator(),
-      MenuItem(label: localizations.delete, onClick: (_) => _delete()),
+      ContextMenuItem.separator(),
+      ContextMenuItem.submenu(label: localizations.domainFilter, submenu: hostFilterMenu()),
+      ContextMenuItem.separator(),
+      ContextMenuItem.normal(label: localizations.exportDomainHar, onClick: () => exportDomainHar()),
+      ContextMenuItem.separator(),
+      ContextMenuItem.normal(label: localizations.repeatDomainRequests, onClick: () => repeatDomainRequests()),
+      ContextMenuItem.separator(),
+      ContextMenuItem.normal(label: localizations.delete, onClick: () => _delete()),
     ]);
-
-    popUpContextMenu(menu);
   }
 
   //重复域名下请求
@@ -615,30 +609,30 @@ class _DomainRequestsState extends State<DomainRequests> {
     widget.onExportHar?.call(widget.domain);
   }
 
-  Menu hostFilterMenu() {
-    return Menu(items: [
-      MenuItem(
+  List<ContextMenuItem> hostFilterMenu() {
+    return [
+      ContextMenuItem.normal(
           label: localizations.domainBlacklist,
-          onClick: (_) {
+          onClick: () {
             HostFilter.blacklist.add(Uri.parse(widget.domain).host);
             configuration.flushConfig();
             FlutterToastr.show(localizations.addSuccess, context);
           }),
-      MenuItem(
+      ContextMenuItem.normal(
           label: localizations.domainWhitelist,
-          onClick: (_) {
+          onClick: () {
             HostFilter.whitelist.add(Uri.parse(widget.domain).host);
             configuration.flushConfig();
             FlutterToastr.show(localizations.addSuccess, context);
           }),
-      MenuItem(
+      ContextMenuItem.normal(
           label: localizations.deleteWhitelist,
-          onClick: (_) {
+          onClick: () {
             HostFilter.whitelist.remove(Uri.parse(widget.domain).host);
             configuration.flushConfig();
             FlutterToastr.show(localizations.deleteSuccess, context);
           }),
-    ]);
+    ];
   }
 
   void _delete() {
