@@ -62,6 +62,9 @@ class SocketLaunch extends StatefulWidget {
 class _SocketLaunchState extends State<SocketLaunch> with WindowListener, WidgetsBindingObserver {
   AppLocalizations get localizations => AppLocalizations.of(context)!;
   bool started = false;
+  Future<void>? _exitFuture;
+  Future<void>? _closeRequestFuture;
+  bool _allowWindowClose = false;
 
   @override
   void initState() {
@@ -90,9 +93,9 @@ class _SocketLaunchState extends State<SocketLaunch> with WindowListener, Widget
 
   @override
   void dispose() {
-    windowManager.removeListener(this);
     WidgetsBinding.instance.removeObserver(this);
     if (Platforms.isDesktop()) {
+      windowManager.removeListener(this);
       DesktopTrayManager.instance.setQuitHandler(null);
     }
     super.dispose();
@@ -101,12 +104,20 @@ class _SocketLaunchState extends State<SocketLaunch> with WindowListener, Widget
   @override
   void onWindowClose() async {
     logger.d("onWindowClose");
+    if (_allowWindowClose) {
+      return;
+    }
     await _handleWindowClose();
   }
 
-  Future<void> _handleWindowClose() async {
+  Future<void> _handleWindowClose() {
+    return _closeRequestFuture ??= _performWindowClose();
+  }
+
+  Future<void> _performWindowClose() async {
     final appConfiguration = AppConfiguration.current;
-    if (Platforms.isDesktop() && appConfiguration?.minimizeToTray == null || appConfiguration?.minimizeToTray == true) {
+    if (Platforms.isDesktop() &&
+        (appConfiguration?.minimizeToTray == null || appConfiguration?.minimizeToTray == true)) {
       if (appConfiguration?.minimizeToTray == null) {
         final minimize = await _showTrayClosePrompt();
         if (!mounted) {
@@ -124,6 +135,7 @@ class _SocketLaunchState extends State<SocketLaunch> with WindowListener, Widget
 
       try {
         await DesktopTrayManager.instance.showToTray();
+        _closeRequestFuture = null;
         return;
       } catch (e) {
         logger.e('show to tray failed, fallback to exit', error: e);
@@ -157,14 +169,19 @@ class _SocketLaunchState extends State<SocketLaunch> with WindowListener, Widget
         false;
   }
 
-  Future<void> appExit() async {
+  Future<void> appExit() {
+    return _exitFuture ??= _performAppExit();
+  }
+
+  Future<void> _performAppExit() async {
     logger.d("appExit");
     await widget.proxyServer.stop();
     started = false;
     if (Platforms.isDesktop()) {
       await DesktopTrayManager.instance.exitApp();
-      windowManager.setPreventClose(false);
-      await windowManager.destroy();
+      await windowManager.setPreventClose(false);
+      _allowWindowClose = true;
+      await windowManager.close();
     }
 
     if (!Platform.isWindows && !Platform.isLinux) {
@@ -175,16 +192,18 @@ class _SocketLaunchState extends State<SocketLaunch> with WindowListener, Widget
       }
     }
 
-    exit(0);
   }
 
   @override
   Future<AppExitResponse> didRequestAppExit() async {
-    bool isPreventClose = await windowManager.isPreventClose();
-    if (!isPreventClose || Platform.isMacOS) {
-      await appExit();
+    final isPreventClose = await windowManager.isPreventClose();
+    if (isPreventClose && !Platform.isMacOS) {
+      await _handleWindowClose();
+      return AppExitResponse.cancel;
     }
-    return super.didRequestAppExit();
+
+    await appExit();
+    return AppExitResponse.exit;
   }
 
   @override

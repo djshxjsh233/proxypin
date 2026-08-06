@@ -78,7 +78,7 @@ class EnvHighlightTextEditingController extends TextEditingController {
       return super.buildTextSpan(context: context, style: style, withComposing: withComposing);
     }
 
-    final isDark = Theme.brightnessOf(context) == Brightness.dark;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final definedStyle = (style ?? const TextStyle()).copyWith(
       color: isDark ? const Color(0xFF7EE787) : const Color(0xFF1B7F3A),
       fontWeight: FontWeight.w600,
@@ -136,7 +136,7 @@ Widget buildEnvHighlightText(
     return Text(text, style: style, maxLines: maxLines, overflow: overflow ?? TextOverflow.clip);
   }
 
-  final isDark = Theme.brightnessOf(context) == Brightness.dark;
+  final isDark = Theme.of(context).brightness == Brightness.dark;
   final definedStyle = (style ?? const TextStyle()).copyWith(
     color: isDark ? const Color(0xFF7EE787) : const Color(0xFF1B7F3A),
     fontWeight: FontWeight.w600,

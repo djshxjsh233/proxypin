@@ -98,7 +98,6 @@ class ContextMenuItem {
 const double _itemHeight = 28.0;
 const double _fontSize = 13.0;
 const double _iconColumn = 16.0;
-const double _submenuIconSize = 16.0;
 const double _menuRadius = 8.0;
 const double _itemRadius = 4.0;
 const double _separatorHeight = 7.0;
@@ -259,15 +258,15 @@ class _ContextMenuAnchorState extends State<_ContextMenuAnchor> {
 MenuStyle _menuStyleOf(BuildContext context) {
   final scheme = Theme.of(context).colorScheme;
   return MenuStyle(
-    padding: const WidgetStatePropertyAll(_menuPadding),
+    padding: MaterialStateProperty.all(_menuPadding),
     visualDensity: VisualDensity.compact,
-    elevation: const WidgetStatePropertyAll(8),
-    surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
-    backgroundColor: WidgetStatePropertyAll(scheme.surface),
-    shape: WidgetStatePropertyAll(
+    elevation: MaterialStateProperty.all(8),
+    surfaceTintColor: MaterialStateProperty.all(Colors.transparent),
+    backgroundColor: MaterialStateProperty.all(scheme.surface),
+    shape: MaterialStateProperty.all(
       RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(_menuRadius),
-        side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.6)),
+        side: BorderSide(color: scheme.outlineVariant.withOpacity(0.6)),
       ),
     ),
   );
@@ -341,9 +340,6 @@ Widget _buildMenuChild(
       return SubmenuButton(
         style: _itemStyle(context),
         menuStyle: _menuStyleOf(context),
-        submenuIcon: const WidgetStatePropertyAll(
-          Icon(Icons.chevron_right, size: _submenuIconSize),
-        ),
         leadingIcon: _leading(reserveGutter),
         menuChildren: item.disabled
             ? const []

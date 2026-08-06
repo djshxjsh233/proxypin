@@ -46,6 +46,10 @@ String _profileDisplayName(AppLocalizations l10n, NetworkConditionProfile p) {
   return p.name;
 }
 
+Color _withAlpha(Color color, double alpha) => color.withOpacity(alpha);
+
+Color _surfaceColor(ThemeData theme) => theme.colorScheme.surface;
+
 /// 构建 profile 下拉里通用的"新增预设"菜单项
 DropdownMenuItem<String> _buildAddProfileItem(BuildContext context) {
   final theme = Theme.of(context);
@@ -132,7 +136,7 @@ class _MobileWeakNetworkState extends State<MobileWeakNetwork> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.wifi_off_rounded, size: 64, color: theme.hintColor.withValues(alpha: 0.3)),
+            Icon(Icons.wifi_off_rounded, size: 64, color: _withAlpha(theme.hintColor, 0.3)),
             const SizedBox(height: 16),
             Text(l10n.emptyData,
                 style: TextStyle(fontSize: 14, color: theme.hintColor, fontWeight: FontWeight.w500)),
@@ -157,8 +161,8 @@ class _MobileWeakNetworkState extends State<MobileWeakNetwork> {
             borderRadius: BorderRadius.circular(12),
             side: BorderSide(
               color: isActive
-                  ? theme.colorScheme.primary.withValues(alpha: 0.4)
-                  : theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+                  ? _withAlpha(theme.colorScheme.primary, 0.4)
+                  : _withAlpha(theme.colorScheme.outlineVariant, 0.4),
               width: 1,
             ),
           ),
@@ -199,7 +203,7 @@ class _MobileWeakNetworkState extends State<MobileWeakNetwork> {
                     ),
                   ),
                   IconButton(
-                    icon: Icon(Icons.delete_outline, size: 20, color: theme.colorScheme.error.withValues(alpha: 0.8)),
+                    icon: Icon(Icons.delete_outline, size: 20, color: _withAlpha(theme.colorScheme.error, 0.8)),
                     onPressed: () => _confirmDeleteRule(index),
                   ),
                 ],
@@ -351,7 +355,7 @@ class _MobileRuleEditPageState extends State<_MobileRuleEditPage> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
               decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerHigh,
+                color: _surfaceColor(theme),
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(color: theme.colorScheme.outlineVariant, width: 0.8),
               ),
@@ -446,9 +450,9 @@ class _MobileRuleEditPageState extends State<_MobileRuleEditPage> {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainer.withValues(alpha: 0.3),
+        color: _surfaceColor(theme),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: accentColor.withValues(alpha: 0.2), width: 1.2),
+        border: Border.all(color: _withAlpha(accentColor, 0.2), width: 1.2),
       ),
       child: Column(
         children: [
@@ -462,9 +466,9 @@ class _MobileRuleEditPageState extends State<_MobileRuleEditPage> {
           ),
           const SizedBox(height: 10),
           row(l10n.weakNetworkBandwidth, fmtBw()),
-          Divider(height: 8, thickness: 0.5, color: theme.dividerColor.withValues(alpha: 0.15)),
+          Divider(height: 8, thickness: 0.5, color: _withAlpha(theme.dividerColor, 0.15)),
           row(l10n.weakNetworkLatency, lat <= 0 ? '0 ms' : '$lat ms'),
-          Divider(height: 8, thickness: 0.5, color: theme.dividerColor.withValues(alpha: 0.15)),
+          Divider(height: 8, thickness: 0.5, color: _withAlpha(theme.dividerColor, 0.15)),
           row(l10n.weakNetworkLossRate, '${(p.lossRate * 100).toStringAsFixed(1)}%'),
         ],
       ),
@@ -554,9 +558,9 @@ class _MobileProfileEditPageState extends State<_MobileProfileEditPage> {
               Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: theme.colorScheme.surfaceContainer.withValues(alpha: 0.15),
+                  color: _surfaceColor(theme),
                   borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5)),
+                  border: Border.all(color: _withAlpha(theme.colorScheme.outlineVariant, 0.5)),
                 ),
                 child: Row(
                   children: [
@@ -610,9 +614,9 @@ class _MobileProfileEditPageState extends State<_MobileProfileEditPage> {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainer.withValues(alpha: 0.25),
+        color: _surfaceColor(theme),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.6), width: 0.8),
+        border: Border.all(color: _withAlpha(theme.colorScheme.outlineVariant, 0.6), width: 0.8),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -697,7 +701,7 @@ class _MobileManageProfilesPageState extends State<_MobileManageProfilesPage> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.layers_clear_outlined, size: 48, color: theme.hintColor.withValues(alpha: 0.4)),
+                  Icon(Icons.layers_clear_outlined, size: 48, color: _withAlpha(theme.hintColor, 0.4)),
                   const SizedBox(height: 12),
                   Text(l10n.emptyData,
                       style: TextStyle(fontSize: 14, color: theme.hintColor, fontWeight: FontWeight.w500)),
@@ -715,7 +719,7 @@ class _MobileManageProfilesPageState extends State<_MobileManageProfilesPage> {
                   elevation: 0,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(10),
-                    side: BorderSide(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5)),
+                    side: BorderSide(color: _withAlpha(theme.colorScheme.outlineVariant, 0.5)),
                   ),
                   child: ListTile(
                     contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),

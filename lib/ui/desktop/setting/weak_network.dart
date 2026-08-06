@@ -20,6 +20,10 @@ const String _kNewProfileValue = '__new__';
 /// URL 规则输入框的技术标签（非用户可见业务文案，保留原字符串）
 const String _kUrlRulePatternLabel = 'URL Rule Pattern';
 
+Color _withAlpha(Color color, double alpha) => color.withOpacity(alpha);
+
+Color _surfaceColor(ThemeData theme) => theme.colorScheme.surface;
+
 /// 内置预设 name 字段为 l10n key，这里集中做一次映射；
 /// 自建预设直接返回其 name。
 String _profileDisplayName(AppLocalizations l10n, NetworkConditionProfile p) {
@@ -133,7 +137,7 @@ class _WeakNetworkDialogState extends State<WeakNetworkDialog> {
       const SizedBox(width: 6),
       Text(l10n.enable, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
       const SizedBox(width: 16),
-      Container(height: 16, width: 1, color: theme.dividerColor.withValues(alpha: 0.5)),
+      Container(height: 16, width: 1, color: _withAlpha(theme.dividerColor, 0.5)),
       const SizedBox(width: 16),
       Text(l10n.weakNetworkRules, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
       const SizedBox(width: 6),
@@ -163,12 +167,12 @@ class _WeakNetworkDialogState extends State<WeakNetworkDialog> {
         width: double.infinity,
         padding: const EdgeInsets.symmetric(vertical: 48),
         decoration: BoxDecoration(
-          color: theme.colorScheme.surfaceContainer.withValues(alpha: 0.15),
+          color: _surfaceColor(theme),
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3), width: 1),
+          border: Border.all(color: _withAlpha(theme.colorScheme.outlineVariant, 0.3), width: 1),
         ),
         child: Column(children: [
-          Icon(Icons.wifi_off_rounded, size: 40, color: theme.hintColor.withValues(alpha: 0.4)),
+          Icon(Icons.wifi_off_rounded, size: 40, color: _withAlpha(theme.hintColor, 0.4)),
           const SizedBox(height: 12),
           Text(l10n.emptyData, style: TextStyle(fontSize: 12, color: theme.hintColor, fontWeight: FontWeight.w500)),
         ]),
@@ -180,11 +184,11 @@ class _WeakNetworkDialogState extends State<WeakNetworkDialog> {
         child: Container(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.35), width: 1),
+            border: Border.all(color: _withAlpha(theme.colorScheme.outlineVariant, 0.35), width: 1),
           ),
           child: Column(children: [
             for (int i = 0; i < m.rules.length; i++) ...[
-              if (i > 0) Divider(height: 1, thickness: 0.5, color: theme.dividerColor.withValues(alpha: 0.25)),
+              if (i > 0) Divider(height: 1, thickness: 0.5, color: _withAlpha(theme.dividerColor, 0.25)),
               _ruleTile(theme, i),
             ]
           ]),
@@ -200,7 +204,7 @@ class _WeakNetworkDialogState extends State<WeakNetworkDialog> {
 
     return InkWell(
       onSecondaryTapDown: (d) => _showRuleMenu(d, index),
-      hoverColor: theme.colorScheme.primary.withValues(alpha: 0.04),
+      hoverColor: _withAlpha(theme.colorScheme.primary, 0.04),
       borderRadius: BorderRadius.circular(9),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -209,7 +213,7 @@ class _WeakNetworkDialogState extends State<WeakNetworkDialog> {
             width: 2,
             height: 28,
             decoration: BoxDecoration(
-              color: isActive ? theme.colorScheme.primary : theme.hintColor.withValues(alpha: 0.25),
+              color: isActive ? theme.colorScheme.primary : _withAlpha(theme.hintColor, 0.25),
               borderRadius: BorderRadius.circular(2),
             ),
           ),
@@ -253,8 +257,8 @@ class _WeakNetworkDialogState extends State<WeakNetworkDialog> {
           _profileDropdown(theme, r),
           const SizedBox(width: 8),
           IconButton(
-              icon: Icon(Icons.delete_outline, size: 18, color: theme.colorScheme.error.withValues(alpha: 0.8)),
-              hoverColor: theme.colorScheme.error.withValues(alpha: 0.08),
+              icon: Icon(Icons.delete_outline, size: 18, color: _withAlpha(theme.colorScheme.error, 0.8)),
+              hoverColor: _withAlpha(theme.colorScheme.error, 0.08),
               splashRadius: 16,
               onPressed: () => _confirmDeleteRule(index)),
         ]),
@@ -271,9 +275,9 @@ class _WeakNetworkDialogState extends State<WeakNetworkDialog> {
       width: 140,
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHigh,
+        color: _surfaceColor(theme),
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.6), width: 0.8),
+        border: Border.all(color: _withAlpha(theme.colorScheme.outlineVariant, 0.6), width: 0.8),
       ),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<String>(
@@ -484,7 +488,7 @@ class _RuleEditDialogState extends State<_RuleEditDialog> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
               decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerHigh,
+                color: _surfaceColor(theme),
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(color: theme.colorScheme.outlineVariant, width: 0.8),
               ),
@@ -579,9 +583,9 @@ class _RuleEditDialogState extends State<_RuleEditDialog> {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainer.withValues(alpha: 0.35),
+        color: _surfaceColor(theme),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: cardAccentColor.withValues(alpha: 0.25), width: 1.2),
+        border: Border.all(color: _withAlpha(cardAccentColor, 0.25), width: 1.2),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -599,9 +603,9 @@ class _RuleEditDialogState extends State<_RuleEditDialog> {
           ),
           const SizedBox(height: 10),
           line(l10n.weakNetworkBandwidth, fmtBw()),
-          Divider(height: 6, thickness: 0.5, color: theme.dividerColor.withValues(alpha: 0.15)),
+          Divider(height: 6, thickness: 0.5, color: _withAlpha(theme.dividerColor, 0.15)),
           line(l10n.weakNetworkLatency, lat <= 0 ? '0 ms' : '$lat ms'),
-          Divider(height: 6, thickness: 0.5, color: theme.dividerColor.withValues(alpha: 0.15)),
+          Divider(height: 6, thickness: 0.5, color: _withAlpha(theme.dividerColor, 0.15)),
           line(l10n.weakNetworkLossRate, '${(p.lossRate * 100).toStringAsFixed(1)}%'),
         ],
       ),
@@ -697,9 +701,9 @@ class _ProfileEditDialogState extends State<_ProfileEditDialog> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainer.withValues(alpha: 0.15),
+                color: _surfaceColor(theme),
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5), width: 0.8),
+                border: Border.all(color: _withAlpha(theme.colorScheme.outlineVariant, 0.5), width: 0.8),
               ),
               child: Row(children: [
                 Icon(Icons.broken_image_outlined, size: 16, color: theme.colorScheme.error),
@@ -760,9 +764,9 @@ class _ProfileEditDialogState extends State<_ProfileEditDialog> {
       Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: theme.colorScheme.surfaceContainer.withValues(alpha: 0.35),
+          color: _surfaceColor(theme),
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.6), width: 0.8),
+          border: Border.all(color: _withAlpha(theme.colorScheme.outlineVariant, 0.6), width: 0.8),
         ),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           _num(l10n.weakNetworkBandwidth, bwCtrl, 'kbps', integer: true),
@@ -846,7 +850,7 @@ class _ManageProfilesDialogState extends State<_ManageProfilesDialog> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.layers_clear_outlined, size: 36, color: theme.hintColor.withValues(alpha: 0.35)),
+              Icon(Icons.layers_clear_outlined, size: 36, color: _withAlpha(theme.hintColor, 0.35)),
               const SizedBox(height: 10),
               Text(l10n.emptyData,
                   style: TextStyle(fontSize: 12, color: theme.hintColor, fontWeight: FontWeight.w500)),
@@ -859,13 +863,13 @@ class _ManageProfilesDialogState extends State<_ManageProfilesDialog> {
             child: Container(
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4), width: 0.8),
+                  border: Border.all(color: _withAlpha(theme.colorScheme.outlineVariant, 0.4), width: 0.8),
               ),
               child: Column(
                 children: [
                   for (int i = 0; i < customProfiles.length; i++) ...[
                     if (i > 0)
-                      Divider(height: 1, thickness: 0.5, color: theme.dividerColor.withValues(alpha: 0.2)),
+                      Divider(height: 1, thickness: 0.5, color: _withAlpha(theme.dividerColor, 0.2)),
                     _profileRow(theme, customProfiles[i]),
                   ]
                 ],
@@ -898,7 +902,7 @@ class _ManageProfilesDialogState extends State<_ManageProfilesDialog> {
         // 编辑单条自定义预设
         IconButton(
           icon: const Icon(Icons.edit_outlined, size: 16),
-          hoverColor: theme.colorScheme.primary.withValues(alpha: 0.08),
+          hoverColor: _withAlpha(theme.colorScheme.primary, 0.08),
           splashRadius: 16,
           onPressed: () async {
             final saved = await showDialog<NetworkConditionProfile>(
@@ -915,8 +919,8 @@ class _ManageProfilesDialogState extends State<_ManageProfilesDialog> {
         const SizedBox(width: 4),
         // 删除单条自定义预设
         IconButton(
-          icon: Icon(Icons.delete_outline, size: 16, color: theme.colorScheme.error.withValues(alpha: 0.8)),
-          hoverColor: theme.colorScheme.error.withValues(alpha: 0.08),
+          icon: Icon(Icons.delete_outline, size: 16, color: _withAlpha(theme.colorScheme.error, 0.8)),
+          hoverColor: _withAlpha(theme.colorScheme.error, 0.08),
           splashRadius: 16,
           onPressed: () {
             showConfirmDialog(context, content: l10n.confirmContent, onConfirm: () async {

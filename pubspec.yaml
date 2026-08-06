@@ -28,7 +28,6 @@ dependencies:
   share_plus: ^10.0.0
   flutter_js: ^0.8.1
   flutter_highlight: ^0.7.0
-  flutter_desktop_context_menu: ^0.2.0
   device_info_plus: ^10.1.2
   shared_preferences: ^2.2.3
   image_pickers: 2.0.5+2
