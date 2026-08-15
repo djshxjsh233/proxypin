@@ -43,7 +43,10 @@ dependencies:
   win32audio: ^1.5.0
   scrollable_positioned_list_nic: ^0.0.2
   tray_manager: ^0.5.3
-  code_forge: ^10.11.0
+  code_forge:
+    git:
+      url: https://github.com/djshxjsh233/code_forge.git
+      ref: main
   archive: ^4.0.0
 
 dev_dependencies:
@@ -51,10 +54,7 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^6.0.0
 
-# Force flutter_rust_bridge to a version compatible with Gradle 9 / AGP 9
-# (2.12.x breaks on Gradle 9: 'project.exec' was removed; fixed in 2.13.0-beta.x)
-dependency_overrides:
-  flutter_rust_bridge: 2.13.0-beta.6
+# (rust_bridge override no longer needed; code_forge fork carries the cargokit Gradle9 fix)
 
 # The following section is specific to Flutter packages.
 flutter:
