@@ -533,12 +533,16 @@ Future<Map<String, dynamic>> toolStartCapture(Map<String, dynamic> args) async {
   if (server == null) {
     return _err('ProxyServer not initialized');
   }
-  if (server.isRunning) {
-    return _ok('capture already running');
-  }
   try {
-    await server.start();
-    return _ok('capture started');
+    // 1. 启动代理服务器（若未运行）
+    if (!server.isRunning) {
+      await server.start();
+    }
+    // 2. 启动本地 VPN，将手机 app 流量重定向到代理（首次需系统 VPN 授权）
+    if (!Vpn.isVpnStarted) {
+      Vpn.startVpn('127.0.0.1', server.port, server.configuration);
+    }
+    return _ok('capture started (proxy + vpn)');
   } catch (e) {
     return _err('start capture failed: ${e.toString()}');
   }
@@ -551,8 +555,15 @@ Future<Map<String, dynamic>> toolStopCapture(Map<String, dynamic> args) async {
     return _err('ProxyServer not initialized');
   }
   try {
-    await server.stop();
-    return _ok('capture stopped');
+    // 停止 VPN
+    if (Vpn.isVpnStarted) {
+      Vpn.stopVpn();
+    }
+    // 停止代理服务器
+    if (server.isRunning) {
+      await server.stop();
+    }
+    return _ok('capture stopped (proxy + vpn)');
   } catch (e) {
     return _err('stop capture failed: ${e.toString()}');
   }
