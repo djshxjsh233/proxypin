@@ -117,6 +117,18 @@ Future<List<McpToolDefinition>> buildMcpTools() async {
 
 // ============ 工具实现 ============
 
+/// 兼容 String 数字与 num 的整数解析
+int _toInt(Map<String, dynamic> args, String key, int fallback) {
+  final v = args[key];
+  if (v == null) return fallback;
+  if (v is num) return v.toInt();
+  if (v is String) {
+    final parsed = int.tryParse(v);
+    return parsed ?? fallback;
+  }
+  return fallback;
+}
+
 Map<String, dynamic> _ok(dynamic data) => {'ok': true, 'data': data};
 Map<String, dynamic> _err(String msg) => {'ok': false, 'error': msg};
 
@@ -185,8 +197,8 @@ Future<Map<String, dynamic>> toolGetRequestList(Map<String, dynamic> args) async
   final domain = args['domain'] as String?;
   final method = args['method'] as String?;
   final keyword = args['keyword'] as String?;
-  final limit = (args['limit'] as num?)?.toInt() ?? 50;
-  final offset = (args['offset'] as num?)?.toInt() ?? 0;
+  final limit = _toInt(args, 'limit', 50);
+  final offset = _toInt(args, 'offset', 0);
 
   var list = reqs.map(_reqSummary).toList();
   if (domain != null && domain.isNotEmpty) {
@@ -207,7 +219,7 @@ Future<Map<String, dynamic>> toolGetRequestList(Map<String, dynamic> args) async
 
 // ---- get_request_detail ----
 Future<Map<String, dynamic>> toolGetRequestDetail(Map<String, dynamic> args) async {
-  final index = (args['index'] as num?)?.toInt() ?? -1;
+  final index = _toInt(args, 'index', -1);
   final reqs = await _allRequests();
   if (index < 0 || index >= reqs.length) return _err('index out of range');
   return _ok(_reqDetail(reqs[index]));
@@ -217,7 +229,7 @@ Future<Map<String, dynamic>> toolGetRequestDetail(Map<String, dynamic> args) asy
 Future<Map<String, dynamic>> toolSearchRequests(Map<String, dynamic> args) async {
   final urlKw = args['urlKeyword'] as String?;
   final bodyKw = args['bodyKeyword'] as String?;
-  final limit = (args['limit'] as num?)?.toInt() ?? 50;
+  final limit = _toInt(args, 'limit', 50);
   final reqs = await _allRequests();
   final results = <Map<String, dynamic>>[];
   for (final r in reqs) {
@@ -318,7 +330,7 @@ Future<Map<String, dynamic>> toolAddBreakpoint(Map<String, dynamic> args) async 
 // ---- remove_breakpoint ----
 Future<Map<String, dynamic>> toolRemoveBreakpoint(Map<String, dynamic> args) async {
   final m = await RequestBreakpointManager.instance;
-  final index = (args['index'] as num?)?.toInt() ?? -1;
+  final index = _toInt(args, 'index', -1);
   if (index < 0 || index >= m.list.length) return _err('index out of range');
   final rule = m.list[index];
   m.remove(rule);
