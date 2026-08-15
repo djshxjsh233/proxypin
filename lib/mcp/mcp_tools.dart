@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:proxypin/native/installed_apps.dart';
 import 'package:proxypin/native/vpn.dart';
@@ -8,8 +9,11 @@ import 'package:proxypin/network/components/manager/hosts_manager.dart';
 import 'package:proxypin/network/components/manager/request_block_manager.dart';
 import 'package:proxypin/network/components/manager/request_breakpoint_manager.dart';
 import 'package:proxypin/network/components/manager/request_map_manager.dart';
+import 'package:proxypin/network/components/manager/network_condition_manager.dart';
+import 'package:proxypin/network/components/manager/script_manager.dart';
 import 'package:proxypin/network/http/http.dart';
 import 'package:proxypin/storage/histories.dart';
+import 'package:proxypin/storage/path.dart';
 import 'package:proxypin/ui/mobile/mobile.dart';
 import 'package:proxypin/mcp/mcp_tool.dart';
 
@@ -328,6 +332,75 @@ Future<List<McpToolDefinition>> buildMcpTools() async {
         'required': ['index'],
       },
       handler: toolRemoveMapRule,
+    ),
+
+    // ---------------- 弱网模拟 ----------------
+    McpToolDefinition(
+      name: 'list_weak_network',
+      description: '列出当前所有弱网模拟规则。',
+      inputSchema: {'type': 'object', 'properties': {}},
+      handler: toolListWeakNetwork,
+    ),
+    McpToolDefinition(
+      name: 'add_weak_network',
+      description: '新增弱网模拟规则（对指定 URL 应用网络档位）。profile 可选 weak/slow/g2/g3/g4/g5/wifi。',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'url': {'type': 'string', 'description': '匹配 URL 模式（支持通配符）'},
+          'profile': {'type': 'string', 'description': '网络档位：weak/slow/g2/g3/g4/g5/wifi', 'enum': ['weak', 'slow', 'g2', 'g3', 'g4', 'g5', 'wifi']},
+          'enabled': {'type': 'boolean', 'description': '是否启用，默认 true'},
+        },
+        'required': ['url'],
+      },
+      handler: toolAddWeakNetwork,
+    ),
+    McpToolDefinition(
+      name: 'remove_weak_network',
+      description: '删除指定弱网模拟规则。index 从 list_weak_network 获取。',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'index': {'type': 'integer', 'description': '规则序号'},
+        },
+        'required': ['index'],
+      },
+      handler: toolRemoveWeakNetwork,
+    ),
+
+    // ---------------- JS 脚本 ----------------
+    McpToolDefinition(
+      name: 'list_scripts',
+      description: '列出当前所有 JS 拦截脚本。',
+      inputSchema: {'type': 'object', 'properties': {}},
+      handler: toolListScripts,
+    ),
+    McpToolDefinition(
+      name: 'create_or_update_script',
+      description: '创建或更新 JS 拦截脚本。urls 为匹配 URL 列表（逗号分隔或数组）。传 index 则更新已有脚本。',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'name': {'type': 'string', 'description': '脚本名称'},
+          'urls': {'type': 'string', 'description': '匹配的 URL 模式，多个用逗号分隔'},
+          'script': {'type': 'string', 'description': 'JavaScript 脚本代码'},
+          'index': {'type': 'integer', 'description': '要更新的脚本序号（不填则新增）'},
+        },
+        'required': ['name', 'urls', 'script'],
+      },
+      handler: toolCreateOrUpdateScript,
+    ),
+    McpToolDefinition(
+      name: 'remove_script',
+      description: '删除指定脚本。index 从 list_scripts 获取。',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'index': {'type': 'integer', 'description': '脚本序号'},
+        },
+        'required': ['index'],
+      },
+      handler: toolRemoveScript,
     ),
   ];
 }
@@ -899,5 +972,115 @@ Future<Map<String, dynamic>> toolRemoveMapRule(Map<String, dynamic> args) async 
     return _ok('map rule removed');
   } catch (e) {
     return _err('remove map rule failed: ${e.toString()}');
+  }
+}
+
+// ---- list_weak_network ----
+Future<Map<String, dynamic>> toolListWeakNetwork(Map<String, dynamic> args) async {
+  try {
+    final m = await NetworkConditionManager.instance;
+    final list = m.rules
+        .map((r) => {'enabled': r.enabled, 'url': r.url, 'profileId': r.profileId})
+        .toList();
+    return _ok({'enabled': m.enabled, 'total': list.length, 'rules': list});
+  } catch (e) {
+    return _err('list weak network failed: ${e.toString()}');
+  }
+}
+
+// ---- add_weak_network ----
+Future<Map<String, dynamic>> toolAddWeakNetwork(Map<String, dynamic> args) async {
+  try {
+    final m = await NetworkConditionManager.instance;
+    final url = args['url'] as String? ?? '';
+    final profile = args['profile'] as String? ?? 'g4';
+    final enabled = args['enabled'] as bool? ?? true;
+    final rule = NetworkConditionRule(enabled: enabled, url: url, profileId: profile);
+    m.rules.add(rule);
+    await m.flushConfig();
+    return _ok('weak network rule added');
+  } catch (e) {
+    return _err('add weak network failed: ${e.toString()}');
+  }
+}
+
+// ---- remove_weak_network ----
+Future<Map<String, dynamic>> toolRemoveWeakNetwork(Map<String, dynamic> args) async {
+  try {
+    final m = await NetworkConditionManager.instance;
+    final index = _toInt(args, 'index', -1);
+    if (index < 0 || index >= m.rules.length) return _err('index out of range');
+    m.rules.removeAt(index);
+    await m.flushConfig();
+    return _ok('weak network rule removed');
+  } catch (e) {
+    return _err('remove weak network failed: ${e.toString()}');
+  }
+}
+
+// ---- list_scripts ----
+Future<Map<String, dynamic>> toolListScripts(Map<String, dynamic> args) async {
+  try {
+    final m = await ScriptManager.instance;
+    final list = m.list
+        .map((e) => {'name': e.name, 'urls': e.urls, 'enabled': e.enabled, 'scriptPath': e.scriptPath})
+        .toList();
+    return _ok({'total': list.length, 'scripts': list});
+  } catch (e) {
+    return _err('list scripts failed: ${e.toString()}');
+  }
+}
+
+// ---- create_or_update_script ----
+Future<Map<String, dynamic>> toolCreateOrUpdateScript(Map<String, dynamic> args) async {
+  try {
+    final m = await ScriptManager.instance;
+    final name = args['name'] as String? ?? '';
+    final urlsRaw = args['urls'];
+    final script = args['script'] as String?;
+    final index = _toInt(args, 'index', -1);
+
+    List<String> urls;
+    if (urlsRaw is String) {
+      urls = urlsRaw.contains(',')
+          ? urlsRaw.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList()
+          : [urlsRaw];
+    } else if (urlsRaw is List) {
+      urls = urlsRaw.map((e) => e.toString()).toList();
+    } else {
+      urls = <String>[];
+    }
+
+    if (index >= 0 && index < m.list.length) {
+      // 更新已有脚本
+      final existing = m.list[index];
+      existing.name = name;
+      existing.urls = urls;
+      if (script != null && script.isNotEmpty && existing.scriptPath != null) {
+        final home = await Paths.homePath();
+        await File('$home${existing.scriptPath}').writeAsString(script);
+      }
+      return _ok('script updated');
+    }
+
+    // 新增
+    final item = ScriptItem(true, name, urls);
+    await m.addScript(item, script);
+    return _ok('script created');
+  } catch (e) {
+    return _err('create/update script failed: ${e.toString()}');
+  }
+}
+
+// ---- remove_script ----
+Future<Map<String, dynamic>> toolRemoveScript(Map<String, dynamic> args) async {
+  try {
+    final m = await ScriptManager.instance;
+    final index = _toInt(args, 'index', -1);
+    if (index < 0 || index >= m.list.length) return _err('index out of range');
+    await m.removeScript(index);
+    return _ok('script removed');
+  } catch (e) {
+    return _err('remove script failed: ${e.toString()}');
   }
 }
