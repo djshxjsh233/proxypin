@@ -3,26 +3,34 @@ allprojects {
         google()
         mavenCentral()
     }
+}
 
-    // Force consistent Java+Kotlin JVM target (AGP9 + Kotlin 2.4 default, avoids plugin mismatches)
-    tasks.withType(JavaCompile).configureEach {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
-    }
-    tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
-        kotlinOptions {
-            jvmTarget = '17'
-        }
-    }
-
-    subprojects {
-        afterEvaluate { project ->
-            if (project.hasProperty('android')) {
-                project.android {
-                    if (namespace == null) {
-                        namespace project.group
-                    }
+// Force consistent Java<Kotlin JVM target across ALL subprojects (incl. Kotlin JS/native plugins
+// like flutter_js that mix Java 11 javac with Kotlin 17). AGP9 + Kotlin2.4 require Java==Kotlin target.
+subprojects {
+    afterEvaluate { project ->
+        def androidExt = project.extensions.findByName("android")
+        if (androidExt != null) {
+            if (androidExt.namespace == null) {
+                androidExt.namespace project.group != null ? project.group : ''
+            }
+            androidExt.compileOptions {
+                sourceCompatibility JavaVersion.VERSION_17
+                targetCompatibility JavaVersion.VERSION_17
+            }
+            if (project.plugins.hasPlugin('org.jetbrains.kotlin.android')) {
+                project.android.kotlinOptions {
+                    jvmTarget = '17'
                 }
+            }
+        }
+        project.tasks.withType(JavaCompile).configureEach {
+            sourceCompatibility = JavaVersion.VERSION_17
+            targetCompatibility = JavaVersion.VERSION_17
+        }
+        project.tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+            kotlinOptions {
+                jvmTarget = '17'
             }
         }
     }
