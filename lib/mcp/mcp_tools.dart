@@ -69,6 +69,14 @@ Future<List<McpToolDefinition>> buildMcpTools() async {
       handler: toolGetDomainSummary,
     ),
 
+    // ---------------- 历史记录 ----------------
+    McpToolDefinition(
+      name: 'get_histories',
+      description: '列出所有保存的历史抓包会话（非实时，仅为已持久化的历史记录）。返回会话名称、请求数、大小、时间。',
+      inputSchema: {'type': 'object', 'properties': {}},
+      handler: toolGetHistories,
+    ),
+
     // ---------------- 断点管理 ----------------
     McpToolDefinition(
       name: 'list_breakpoints',
@@ -336,6 +344,23 @@ Future<Map<String, dynamic>> toolRemoveBreakpoint(Map<String, dynamic> args) asy
   m.remove(rule);
   await m.save();
   return _ok('removed');
+}
+
+// ---- get_histories ----
+Future<Map<String, dynamic>> toolGetHistories(Map<String, dynamic> args) async {
+  try {
+    final storage = await HistoryStorage.instance;
+    final list = storage.histories.map((h) => {
+          'name': h.name,
+          'path': h.path,
+          'requestCount': h.requestLength,
+          'fileSize': h.size,
+          'createTime': h.createTime.millisecondsSinceEpoch,
+        }).toList();
+    return _ok({'total': list.length, 'histories': list});
+  } catch (e) {
+    return _err('read histories failed: ${e.toString()}');
+  }
 }
 
 // ---- get_proxy_status ----
