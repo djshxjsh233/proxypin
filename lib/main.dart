@@ -20,6 +20,7 @@ import 'dart:io';
 
 import 'package:code_forge/code_forge.dart';
 import 'package:flutter/material.dart';
+import 'package:proxypin/mcp/mcp_manager.dart';
 import 'package:proxypin/network/bin/configuration.dart';
 import 'package:proxypin/network/components/manager/environment_manager.dart';
 import 'package:proxypin/ui/component/chinese_font.dart';
@@ -76,6 +77,8 @@ void main(List<String> args) async {
   //移动端
   if (Platforms.isMobile()) {
     var appConfiguration = await instance;
+    // MCP 服务自启动
+    unawaited(_autoStartMcp());
     runApp(FluentApp(MobileHomePage((await configuration), appConfiguration), appConfiguration));
     return;
   }
@@ -86,6 +89,16 @@ void main(List<String> args) async {
   }
 
   runApp(FluentApp(DesktopHomePage(await configuration, appConfiguration), appConfiguration));
+}
+
+/// 启动 MCP 服务（若配置了自启动）
+Future<void> _autoStartMcp() async {
+  try {
+    final manager = await McpManager.instance;
+    await manager.autoStartIfEnabled();
+  } catch (_) {
+    // MCP 自启动失败不应阻塞 App 启动
+  }
 }
 
 class FluentApp extends StatelessWidget {

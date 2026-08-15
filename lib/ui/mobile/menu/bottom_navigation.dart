@@ -41,6 +41,7 @@ import 'package:proxypin/ui/mobile/setting/script.dart';
 import 'package:proxypin/ui/mobile/setting/ssl.dart';
 import 'package:proxypin/ui/mobile/widgets/about.dart';
 import 'package:proxypin/ui/mobile/setting/request_breakpoint.dart';
+import 'package:proxypin/ui/mobile/setting/mcp.dart';
 
 import '../../../network/components/manager/request_breakpoint_manager.dart';
 import '../../component/widgets.dart';
@@ -342,6 +343,12 @@ class SettingPage extends StatelessWidget {
                 trailing: const Icon(Icons.keyboard_arrow_right),
                 onTap: () =>
                     navigator(context, Preference(proxyServer: proxyServer, appConfiguration: appConfiguration))),
+            Divider(height: 0, thickness: 0.3, color: Theme.of(context).dividerColor.withValues(alpha: 0.22)),
+            ListTile(
+                leading: const Icon(Icons.extension),
+                title: const Text("MCP Server"),
+                trailing: const Icon(Icons.keyboard_arrow_right),
+                onTap: () => navigator(context, const McpPageMobile())),
             Divider(height: 0, thickness: 0.3, color: Theme.of(context).dividerColor.withValues(alpha: 0.22)),
             ListTile(
                 title: Text(localizations.about),
