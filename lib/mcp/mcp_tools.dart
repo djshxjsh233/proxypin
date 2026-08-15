@@ -162,7 +162,7 @@ Future<List<HttpRequest>> _allRequests() async {
 
   // 实时抓包 buffer（当前这次启动抓到的请求）
   try {
-    results.addAll(MobileHomePage.container.source);
+    results.addAll(MobileApp.container.source);
   } catch (_) {}
 
   // 兜底：历史持久化请求（可能包含实时未覆盖的）
