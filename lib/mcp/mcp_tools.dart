@@ -78,15 +78,30 @@ Future<List<McpToolDefinition>> buildMcpTools() async {
     ),
     McpToolDefinition(
       name: 'get_history_requests',
-      description: '查看指定历史会话的请求明细。可以传 name（会话名，来自 get_histories）或 index（会话序号）定位。',
+      description: '查看指定历史会话的请求列表。传 name（会话名）或 index（会话序号）定位。detail=true 可返回每条的完整数据（请求头/体/响应）。',
       inputSchema: {
         'type': 'object',
         'properties': {
           'name': {'type': 'string', 'description': '历史会话名称（来自 get_histories）'},
           'index': {'type': 'integer', 'description': '历史会话序号（0 开始）'},
+          'detail': {'type': 'boolean', 'description': '是否返回完整数据（请求头/请求体/响应头/响应体），默认 false 仅摘要'},
         },
       },
       handler: toolGetHistoryRequests,
+    ),
+    McpToolDefinition(
+      name: 'get_history_request_detail',
+      description: '查看某个历史会话中单条请求的完整数据（请求头、请求体、响应头、响应体）。需传会话 name/index 和请求序号 requestIndex。',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'name': {'type': 'string', 'description': '历史会话名称（来自 get_histories）'},
+          'index': {'type': 'integer', 'description': '历史会话序号（0 开始），与 name 二选一'},
+          'requestIndex': {'type': 'integer', 'description': '会话内请求序号（0 开始）'},
+        },
+        'required': ['requestIndex'],
+      },
+      handler: toolGetHistoryRequestDetail,
     ),
 
     // ---------------- 断点管理 ----------------
@@ -400,10 +415,45 @@ Future<Map<String, dynamic>> toolGetHistoryRequests(Map<String, dynamic> args) a
     }
 
     final reqs = await storage.getRequests(target);
-    final list = reqs.map(_reqSummary).toList();
+    final detail = args['detail'] as bool? ?? false;
+    final list = detail ? reqs.map(_reqDetail).toList() : reqs.map(_reqSummary).toList();
     return _ok({'historyName': target.name, 'total': list.length, 'requests': list});
   } catch (e) {
     return _err('read history requests failed: ${e.toString()}');
+  }
+}
+
+// ---- get_history_request_detail ----
+Future<Map<String, dynamic>> toolGetHistoryRequestDetail(Map<String, dynamic> args) async {
+  try {
+    final storage = await HistoryStorage.instance;
+    final name = args['name'] as String?;
+    final index = _toInt(args, 'index', -1);
+    final reqIndex = _toInt(args, 'requestIndex', -1);
+
+    HistoryItem? target;
+    if (name != null && name.isNotEmpty) {
+      for (final h in storage.histories) {
+        if (h.name == name) {
+          target = h;
+          break;
+        }
+      }
+    } else if (index >= 0 && index < storage.histories.length) {
+      target = storage.histories[index];
+    }
+
+    if (target == null) {
+      return _err('history not found (use name or index)');
+    }
+
+    final reqs = await storage.getRequests(target);
+    if (reqIndex < 0 || reqIndex >= reqs.length) {
+      return _err('request index out of range');
+    }
+    return _ok(_reqDetail(reqs[reqIndex]));
+  } catch (e) {
+    return _err('read history request detail failed: ${e.toString()}');
   }
 }
 
