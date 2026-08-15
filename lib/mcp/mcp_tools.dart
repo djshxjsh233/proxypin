@@ -4,6 +4,7 @@ import 'package:proxypin/network/bin/configuration.dart';
 import 'package:proxypin/network/components/manager/request_breakpoint_manager.dart';
 import 'package:proxypin/network/http/http.dart';
 import 'package:proxypin/storage/histories.dart';
+import 'package:proxypin/ui/mobile/mobile.dart';
 import 'package:proxypin/mcp/mcp_tool.dart';
 
 /// 构建所有 MCP 工具定义。MCP server 通过 buildMcpTools() 一次性注册。
@@ -157,14 +158,24 @@ Map<String, dynamic> _reqDetail(HttpRequest r) {
 
 /// 读取全部历史请求
 Future<List<HttpRequest>> _allRequests() async {
-  final storage = await HistoryStorage.instance;
   final results = <HttpRequest>[];
-  for (final h in storage.histories) {
-    try {
-      final reqs = await storage.getRequests(h);
-      results.addAll(reqs);
-    } catch (_) {}
-  }
+
+  // 实时抓包 buffer（当前这次启动抓到的请求）
+  try {
+    results.addAll(MobileHomePage.container.source);
+  } catch (_) {}
+
+  // 兜底：历史持久化请求（可能包含实时未覆盖的）
+  try {
+    final storage = await HistoryStorage.instance;
+    for (final h in storage.histories) {
+      try {
+        final reqs = await storage.getRequests(h);
+        results.addAll(reqs);
+      } catch (_) {}
+    }
+  } catch (_) {}
+
   return results;
 }
 
