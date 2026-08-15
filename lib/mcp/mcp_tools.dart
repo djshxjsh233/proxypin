@@ -278,26 +278,9 @@ Map<String, dynamic> _reqDetail(HttpRequest r) {
 }
 
 /// 读取全部历史请求
+/// 读取实时抓包请求（仅当前抓包容器，与 App 请求列表一致）。
 Future<List<HttpRequest>> _allRequests() async {
-  final results = <HttpRequest>[];
-
-  // 实时抓包 buffer（当前这次启动抓到的请求）
-  try {
-    results.addAll(MobileApp.container.source);
-  } catch (_) {}
-
-  // 兜底：历史持久化请求（可能包含实时未覆盖的）
-  try {
-    final storage = await HistoryStorage.instance;
-    for (final h in storage.histories) {
-      try {
-        final reqs = await storage.getRequests(h);
-        results.addAll(reqs);
-      } catch (_) {}
-    }
-  } catch (_) {}
-
-  return results;
+  return List.of(MobileApp.container.source);
 }
 
 // ---- get_request_list ----
@@ -550,6 +533,9 @@ Future<Map<String, dynamic>> toolStartCapture(Map<String, dynamic> args) async {
   if (server == null) {
     return _err('ProxyServer not initialized');
   }
+  if (server.isRunning) {
+    return _ok('capture already running');
+  }
   try {
     await server.start();
     return _ok('capture started');
@@ -577,7 +563,7 @@ Future<Map<String, dynamic>> toolGetCaptureStatus(Map<String, dynamic> args) asy
   final server = ProxyServer.current;
   final conf = await Configuration.instance;
   return _ok({
-    'serverRunning': server?.server != null,
+    'serverRunning': server?.isRunning ?? false,
     'vpnRunning': Vpn.isVpnStarted,
     'port': conf.port,
     'appWhitelistEnabled': conf.appWhitelistEnabled,
