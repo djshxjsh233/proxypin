@@ -7,6 +7,7 @@ import 'package:proxypin/network/bin/server.dart';
 import 'package:proxypin/network/components/manager/hosts_manager.dart';
 import 'package:proxypin/network/components/manager/request_block_manager.dart';
 import 'package:proxypin/network/components/manager/request_breakpoint_manager.dart';
+import 'package:proxypin/network/components/manager/request_map_manager.dart';
 import 'package:proxypin/network/http/http.dart';
 import 'package:proxypin/storage/histories.dart';
 import 'package:proxypin/ui/mobile/mobile.dart';
@@ -222,6 +223,111 @@ Future<List<McpToolDefinition>> buildMcpTools() async {
       description: '停止 VPN 抓包模式。',
       inputSchema: {'type': 'object', 'properties': {}},
       handler: toolStopVpn,
+    ),
+
+    // ---------------- 屏蔽规则 ----------------
+    McpToolDefinition(
+      name: 'list_block_rules',
+      description: '列出当前所有请求屏蔽规则。',
+      inputSchema: {'type': 'object', 'properties': {}},
+      handler: toolListBlockRules,
+    ),
+    McpToolDefinition(
+      name: 'add_block_rule',
+      description: '新增请求屏蔽规则（按 URL 匹配，可选屏蔽请求或响应）。',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'url': {'type': 'string', 'description': 'URL 匹配模式（支持通配符），如 *.ads.example.com*'},
+          'type': {'type': 'string', 'description': '屏蔽类型：blockRequest=屏蔽请求，blockResponse=屏蔽响应', 'enum': ['blockRequest', 'blockResponse']},
+          'enabled': {'type': 'boolean', 'description': '是否启用，默认 true'},
+        },
+        'required': ['url'],
+      },
+      handler: toolAddBlockRule,
+    ),
+    McpToolDefinition(
+      name: 'remove_block_rule',
+      description: '删除指定屏蔽规则。index 从 list_block_rules 获取。',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'index': {'type': 'integer', 'description': '规则序号'},
+        },
+        'required': ['index'],
+      },
+      handler: toolRemoveBlockRule,
+    ),
+
+    // ---------------- Hosts 劫持 ----------------
+    McpToolDefinition(
+      name: 'list_hosts',
+      description: '列出当前所有 Hosts 劫持规则。',
+      inputSchema: {'type': 'object', 'properties': {}},
+      handler: toolListHosts,
+    ),
+    McpToolDefinition(
+      name: 'add_host',
+      description: '新增 Hosts 劫持规则（域名指向指定 IP）。',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'host': {'type': 'string', 'description': '要劫持的域名'},
+          'toAddress': {'type': 'string', 'description': '指向的 IP 地址'},
+          'enabled': {'type': 'boolean', 'description': '是否启用，默认 true'},
+        },
+        'required': ['host', 'toAddress'],
+      },
+      handler: toolAddHost,
+    ),
+    McpToolDefinition(
+      name: 'remove_host',
+      description: '删除指定 Hosts 劫持规则。index 从 list_hosts 获取。',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'index': {'type': 'integer', 'description': '规则序号'},
+        },
+        'required': ['index'],
+      },
+      handler: toolRemoveHost,
+    ),
+
+    // ---------------- URL 映射 ----------------
+    McpToolDefinition(
+      name: 'list_map_rules',
+      description: '列出当前所有 URL 映射规则（把请求映射到本地响应或脚本）。',
+      inputSchema: {'type': 'object', 'properties': {}},
+      handler: toolListMapRules,
+    ),
+    McpToolDefinition(
+      name: 'add_map_rule',
+      description: '新增 URL 映射规则。type=local 用本地 body/statusCode 响应；type=script 用脚本拦截。',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'url': {'type': 'string', 'description': '要匹配的 URL 模式'},
+          'type': {'type': 'string', 'description': '映射类型：local=本地响应，script=脚本', 'enum': ['local', 'script']},
+          'name': {'type': 'string', 'description': '规则名称（可选）'},
+          'body': {'type': 'string', 'description': '本地响应的 body 内容（type=local 时）'},
+          'statusCode': {'type': 'integer', 'description': '本地响应状态码（type=local 时）'},
+          'script': {'type': 'string', 'description': '脚本内容（type=script 时）'},
+        },
+        'required': ['url'],
+      },
+      handler: toolAddMapRule,
+    ),
+    McpToolDefinition(
+      name: 'remove_map_rule',
+      description: '删除指定 URL 映射规则。index 从 list_map_rules 获取。',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'index': {'type': 'integer', 'description': '规则序号'},
+        },
+        'required': ['index'],
+      },
+      handler: toolRemoveMapRule,
     ),
   ];
 }
@@ -654,5 +760,144 @@ Future<Map<String, dynamic>> toolStopVpn(Map<String, dynamic> args) async {
     return _ok('vpn stopped');
   } catch (e) {
     return _err('stop vpn failed: ${e.toString()}');
+  }
+}
+
+// ---- list_block_rules ----
+Future<Map<String, dynamic>> toolListBlockRules(Map<String, dynamic> args) async {
+  try {
+    final m = await RequestBlockManager.instance;
+    final list = m.list.map((e) => {'enabled': e.enabled, 'url': e.url, 'type': e.type.name}).toList();
+    return _ok({'total': list.length, 'rules': list});
+  } catch (e) {
+    return _err('list block rules failed: ${e.toString()}');
+  }
+}
+
+// ---- add_block_rule ----
+Future<Map<String, dynamic>> toolAddBlockRule(Map<String, dynamic> args) async {
+  try {
+    final m = await RequestBlockManager.instance;
+    final url = args['url'] as String? ?? '';
+    final typeStr = args['type'] as String? ?? 'blockRequest';
+    final enabled = args['enabled'] as bool? ?? true;
+    BlockType type;
+    try {
+      type = BlockType.values.firstWhere((e) => e.name == typeStr);
+    } catch (_) {
+      type = BlockType.blockRequest;
+    }
+    m.addBlockRequest(RequestBlockItem(enabled, url, type));
+    return _ok('block rule added');
+  } catch (e) {
+    return _err('add block rule failed: ${e.toString()}');
+  }
+}
+
+// ---- remove_block_rule ----
+Future<Map<String, dynamic>> toolRemoveBlockRule(Map<String, dynamic> args) async {
+  try {
+    final m = await RequestBlockManager.instance;
+    final index = _toInt(args, 'index', -1);
+    if (index < 0 || index >= m.list.length) return _err('index out of range');
+    m.removeBlockRequest(index);
+    return _ok('block rule removed');
+  } catch (e) {
+    return _err('remove block rule failed: ${e.toString()}');
+  }
+}
+
+// ---- list_hosts ----
+Future<Map<String, dynamic>> toolListHosts(Map<String, dynamic> args) async {
+  try {
+    final m = await HostsManager.instance;
+    final list = m.list
+        .map((e) => {'enabled': e.enabled, 'host': e.host, 'toAddress': e.toAddress})
+        .toList();
+    return _ok({'total': list.length, 'hosts': list});
+  } catch (e) {
+    return _err('list hosts failed: ${e.toString()}');
+  }
+}
+
+// ---- add_host ----
+Future<Map<String, dynamic>> toolAddHost(Map<String, dynamic> args) async {
+  try {
+    final m = await HostsManager.instance;
+    final host = args['host'] as String? ?? '';
+    final toAddress = args['toAddress'] as String?;
+    final enabled = args['enabled'] as bool? ?? true;
+    final item = HostsItem(host: host, toAddress: toAddress, enabled: enabled);
+    await m.addHosts(item);
+    return _ok('host added');
+  } catch (e) {
+    return _err('add host failed: ${e.toString()}');
+  }
+}
+
+// ---- remove_host ----
+Future<Map<String, dynamic>> toolRemoveHost(Map<String, dynamic> args) async {
+  try {
+    final m = await HostsManager.instance;
+    final index = _toInt(args, 'index', -1);
+    if (index < 0 || index >= m.list.length) return _err('index out of range');
+    final item = m.list[index];
+    await m.removeHosts([item]);
+    return _ok('host removed');
+  } catch (e) {
+    return _err('remove host failed: ${e.toString()}');
+  }
+}
+
+// ---- list_map_rules ----
+Future<Map<String, dynamic>> toolListMapRules(Map<String, dynamic> args) async {
+  try {
+    final m = await RequestMapManager.instance;
+    final list = m.rules
+        .map((r) => {'enabled': r.enabled, 'name': r.name, 'url': r.url, 'type': r.type.name})
+        .toList();
+    return _ok({'total': list.length, 'rules': list});
+  } catch (e) {
+    return _err('list map rules failed: ${e.toString()}');
+  }
+}
+
+// ---- add_map_rule ----
+Future<Map<String, dynamic>> toolAddMapRule(Map<String, dynamic> args) async {
+  try {
+    final m = await RequestMapManager.instance;
+    final url = args['url'] as String? ?? '';
+    final typeStr = args['type'] as String? ?? 'local';
+    final name = args['name'] as String?;
+    RequestMapType type;
+    try {
+      type = RequestMapType.values.firstWhere((e) => e.name == typeStr);
+    } catch (_) {
+      type = RequestMapType.local;
+    }
+    final rule = RequestMapRule(name: name, url: url, type: type);
+    final item = RequestMapItem(
+      body: args['body'] as String?,
+      statusCode: (args['statusCode'] as num?)?.toInt(),
+      script: args['script'] as String?,
+    );
+    await m.addRule(rule, item);
+    return _ok('map rule added');
+  } catch (e) {
+    return _err('add map rule failed: ${e.toString()}');
+  }
+}
+
+// ---- remove_map_rule ----
+Future<Map<String, dynamic>> toolRemoveMapRule(Map<String, dynamic> args) async {
+  try {
+    final m = await RequestMapManager.instance;
+    final index = _toInt(args, 'index', -1);
+    if (index < 0 || index >= m.rules.length) return _err('index out of range');
+    m.rules.removeAt(index);
+    await m.flushConfig();
+    return _ok('map rule removed');
+  } catch (e) {
+    return _err('remove map rule failed: ${e.toString()}');
   }
 }
