@@ -1,6 +1,9 @@
 import 'dart:convert';
 
+import 'package:proxypin/native/installed_apps.dart';
+import 'package:proxypin/native/vpn.dart';
 import 'package:proxypin/network/bin/configuration.dart';
+import 'package:proxypin/network/bin/server.dart';
 import 'package:proxypin/network/components/manager/request_breakpoint_manager.dart';
 import 'package:proxypin/network/http/http.dart';
 import 'package:proxypin/storage/histories.dart';
@@ -146,6 +149,77 @@ Future<List<McpToolDefinition>> buildMcpTools() async {
       description: '获取代理服务状态与配置（端口、SSL 抓包、代理端口范围等）。',
       inputSchema: {'type': 'object', 'properties': {}},
       handler: toolGetProxyStatus,
+    ),
+
+    // ---------------- 抓包开关 ----------------
+    McpToolDefinition(
+      name: 'start_capture',
+      description: '启动抓包（启动代理服务器）。若需按应用过滤请先设置白名单并开启 VPN。',
+      inputSchema: {'type': 'object', 'properties': {}},
+      handler: toolStartCapture,
+    ),
+    McpToolDefinition(
+      name: 'stop_capture',
+      description: '停止抓包（停止代理服务器）。',
+      inputSchema: {'type': 'object', 'properties': {}},
+      handler: toolStopCapture,
+    ),
+    McpToolDefinition(
+      name: 'get_capture_status',
+      description: '获取当前抓包/代理/VPN 运行状态。',
+      inputSchema: {'type': 'object', 'properties': {}},
+      handler: toolGetCaptureStatus,
+    ),
+
+    // ---------------- 应用白名单 ----------------
+    McpToolDefinition(
+      name: 'list_installed_apps',
+      description: '列出设备上已安装的应用（名称/包名），用于选择要抓包的应用。',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'keyword': {'type': 'string', 'description': '按包名前缀过滤'},
+          'includeSystem': {'type': 'boolean', 'description': '是否包含系统应用'},
+          'limit': {'type': 'integer', 'description': '最大条数，默认 100'},
+        },
+      },
+      handler: toolListInstalledApps,
+    ),
+    McpToolDefinition(
+      name: 'get_app_whitelist',
+      description: '获取当前抓包应用白名单（仅这些应用走代理抓包）。返回白名单开关状态和包名列表。',
+      inputSchema: {'type': 'object', 'properties': {}},
+      handler: toolGetAppWhitelist,
+    ),
+    McpToolDefinition(
+      name: 'set_app_whitelist',
+      description: '设置抓包应用白名单（仅指定包名的应用走代理抓包）。传 appPackages 包名列表。enable 控制白名单开关。',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'appPackages': {
+            'type': 'array',
+            'items': {'type': 'string'},
+            'description': '要抓包的应用包名列表，例如 ["com.example.app"]',
+          },
+          'enable': {'type': 'boolean', 'description': '白名单开关（默认保持当前）'},
+        },
+      },
+      handler: toolSetAppWhitelist,
+    ),
+
+    // ---------------- VPN 模式 ----------------
+    McpToolDefinition(
+      name: 'start_vpn',
+      description: '启动本地 VPN 抓包模式（按应用过滤抓包需要 VPN 模式）。首次需系统授权 VPN 连接。',
+      inputSchema: {'type': 'object', 'properties': {}},
+      handler: toolStartVpn,
+    ),
+    McpToolDefinition(
+      name: 'stop_vpn',
+      description: '停止 VPN 抓包模式。',
+      inputSchema: {'type': 'object', 'properties': {}},
+      handler: toolStopVpn,
     ),
   ];
 }
@@ -468,4 +542,115 @@ Future<Map<String, dynamic>> toolGetProxyStatus(Map<String, dynamic> args) async
     'enableSystemProxy': conf.enableSystemProxy,
     'proxyPassDomains': conf.proxyPassDomains,
   });
+}
+
+// ---- start_capture ----
+Future<Map<String, dynamic>> toolStartCapture(Map<String, dynamic> args) async {
+  final server = ProxyServer.current;
+  if (server == null) {
+    return _err('ProxyServer not initialized');
+  }
+  try {
+    await server.start();
+    return _ok('capture started');
+  } catch (e) {
+    return _err('start capture failed: ${e.toString()}');
+  }
+}
+
+// ---- stop_capture ----
+Future<Map<String, dynamic>> toolStopCapture(Map<String, dynamic> args) async {
+  final server = ProxyServer.current;
+  if (server == null) {
+    return _err('ProxyServer not initialized');
+  }
+  try {
+    await server.stop();
+    return _ok('capture stopped');
+  } catch (e) {
+    return _err('stop capture failed: ${e.toString()}');
+  }
+}
+
+// ---- get_capture_status ----
+Future<Map<String, dynamic>> toolGetCaptureStatus(Map<String, dynamic> args) async {
+  final server = ProxyServer.current;
+  final conf = await Configuration.instance;
+  return _ok({
+    'serverRunning': server?.server != null,
+    'vpnRunning': Vpn.isVpnStarted,
+    'port': conf.port,
+    'appWhitelistEnabled': conf.appWhitelistEnabled,
+    'appWhitelistCount': conf.appWhitelist.length,
+  });
+}
+
+// ---- list_installed_apps ----
+Future<Map<String, dynamic>> toolListInstalledApps(Map<String, dynamic> args) async {
+  try {
+    final keyword = args['keyword'] as String?;
+    final includeSystem = args['includeSystem'] as bool? ?? false;
+    final limit = _toInt(args, 'limit', 100);
+    final apps = await InstalledApps.getInstalledApps(false,
+        packageNamePrefix: keyword, includeSystemApps: includeSystem);
+    final list = apps
+        .take(limit)
+        .map((a) => {'name': a.name, 'packageName': a.packageName, 'versionName': a.versionName, 'inValid': a.inValid})
+        .toList();
+    return _ok({'total': list.length, 'apps': list});
+  } catch (e) {
+    return _err('list apps failed: ${e.toString()}');
+  }
+}
+
+// ---- get_app_whitelist ----
+Future<Map<String, dynamic>> toolGetAppWhitelist(Map<String, dynamic> args) async {
+  final conf = await Configuration.instance;
+  return _ok({
+    'enabled': conf.appWhitelistEnabled,
+    'appPackages': conf.appWhitelist,
+  });
+}
+
+// ---- set_app_whitelist ----
+Future<Map<String, dynamic>> toolSetAppWhitelist(Map<String, dynamic> args) async {
+  final conf = await Configuration.instance;
+  if (args['enable'] != null) {
+    conf.appWhitelistEnabled = args['enable'] as bool;
+  }
+  final packages = args['appPackages'];
+  if (packages is List) {
+    conf.appWhitelist = packages.map((e) => e.toString()).toList();
+  }
+  await conf.flushConfig();
+  return _ok({'enabled': conf.appWhitelistEnabled, 'appPackages': conf.appWhitelist});
+}
+
+// ---- start_vpn ----
+Future<Map<String, dynamic>> toolStartVpn(Map<String, dynamic> args) async {
+  final server = ProxyServer.current;
+  final conf = await Configuration.instance;
+  if (server == null) {
+    return _err('ProxyServer not initialized');
+  }
+  try {
+    // 确保代理先启动，再用代理配置启动 VPN
+    if (server.server == null) {
+      await server.start();
+    }
+    Vpn.startVpn('127.0.0.1', conf.port, conf);
+    return _ok('vpn started');
+  } catch (e) {
+    return _err('start vpn failed: ${e.toString()}');
+  }
+}
+
+// ---- stop_vpn ----
+Future<Map<String, dynamic>> toolStopVpn(Map<String, dynamic> args) async {
+  try {
+    Vpn.stopVpn();
+    return _ok('vpn stopped');
+  } catch (e) {
+    return _err('stop vpn failed: ${e.toString()}');
+  }
 }
