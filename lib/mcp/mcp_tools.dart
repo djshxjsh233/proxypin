@@ -193,16 +193,16 @@ Future<List<McpToolDefinition>> buildMcpTools() async {
     ),
     McpToolDefinition(
       name: 'set_app_whitelist',
-      description: '设置抓包应用白名单（仅指定包名的应用走代理抓包）。传 appPackages 包名列表。enable 控制白名单开关。',
+      description: '设置抓包应用白名单（仅指定包名的应用走代理抓包）。设置 appPackages 会自动开启白名单开关；用 enable:false 可关闭（改回抓全部应用）。',
       inputSchema: {
         'type': 'object',
         'properties': {
           'appPackages': {
             'type': 'array',
             'items': {'type': 'string'},
-            'description': '要抓包的应用包名列表，例如 ["com.example.app"]',
+            'description': '要抓包的应用包名列表，例如 ["com.example.app"]；设置后自动开启白名单开关',
           },
-          'enable': {'type': 'boolean', 'description': '白名单开关（默认保持当前）'},
+          'enable': {'type': 'boolean', 'description': '白名单开关，true=启用过滤，false=关闭过滤抓全部应用'},
         },
       },
       handler: toolSetAppWhitelist,
@@ -612,12 +612,15 @@ Future<Map<String, dynamic>> toolGetAppWhitelist(Map<String, dynamic> args) asyn
 // ---- set_app_whitelist ----
 Future<Map<String, dynamic>> toolSetAppWhitelist(Map<String, dynamic> args) async {
   final conf = await Configuration.instance;
-  if (args['enable'] != null) {
-    conf.appWhitelistEnabled = args['enable'] as bool;
-  }
   final packages = args['appPackages'];
   if (packages is List) {
     conf.appWhitelist = packages.map((e) => e.toString()).toList();
+    // 设置应用列表时，默认开启白名单开关（否则不生效抓不到目标应用）
+    conf.appWhitelistEnabled = true;
+  }
+  // 显式 enable 参数可覆盖开关状态（false = 关闭白名单过滤，抓所有应用）
+  if (args['enable'] != null) {
+    conf.appWhitelistEnabled = args['enable'] as bool;
   }
   await conf.flushConfig();
   return _ok({'enabled': conf.appWhitelistEnabled, 'appPackages': conf.appWhitelist});
