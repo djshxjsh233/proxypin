@@ -76,6 +76,18 @@ Future<List<McpToolDefinition>> buildMcpTools() async {
       inputSchema: {'type': 'object', 'properties': {}},
       handler: toolGetHistories,
     ),
+    McpToolDefinition(
+      name: 'get_history_requests',
+      description: '查看指定历史会话的请求明细。可以传 name（会话名，来自 get_histories）或 index（会话序号）定位。',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'name': {'type': 'string', 'description': '历史会话名称（来自 get_histories）'},
+          'index': {'type': 'integer', 'description': '历史会话序号（0 开始）'},
+        },
+      },
+      handler: toolGetHistoryRequests,
+    ),
 
     // ---------------- 断点管理 ----------------
     McpToolDefinition(
@@ -360,6 +372,38 @@ Future<Map<String, dynamic>> toolGetHistories(Map<String, dynamic> args) async {
     return _ok({'total': list.length, 'histories': list});
   } catch (e) {
     return _err('read histories failed: ${e.toString()}');
+  }
+}
+
+// ---- get_history_requests ----
+Future<Map<String, dynamic>> toolGetHistoryRequests(Map<String, dynamic> args) async {
+  try {
+    final storage = await HistoryStorage.instance;
+    final name = args['name'] as String?;
+    final index = _toInt(args, 'index', -1);
+
+    // 定位目标历史项（按 name 精确匹配，或按 index）
+    HistoryItem? target;
+    if (name != null && name.isNotEmpty) {
+      for (final h in storage.histories) {
+        if (h.name == name) {
+          target = h;
+          break;
+        }
+      }
+    } else if (index >= 0 && index < storage.histories.length) {
+      target = storage.histories[index];
+    }
+
+    if (target == null) {
+      return _err('history not found (use name or index)');
+    }
+
+    final reqs = await storage.getRequests(target);
+    final list = reqs.map(_reqSummary).toList();
+    return _ok({'historyName': target.name, 'total': list.length, 'requests': list});
+  } catch (e) {
+    return _err('read history requests failed: ${e.toString()}');
   }
 }
 
