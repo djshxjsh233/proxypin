@@ -369,6 +369,18 @@ Future<List<McpToolDefinition>> buildMcpTools() async {
       },
       handler: toolRemoveWeakNetwork,
     ),
+    McpToolDefinition(
+      name: 'set_weak_network_enabled',
+      description: '开启/关闭弱网模拟总开关（影响所有弱网规则是否生效）。',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'enable': {'type': 'boolean', 'description': '是否启用弱网模拟'},
+        },
+        'required': ['enable'],
+      },
+      handler: toolSetWeakNetworkEnabled,
+    ),
 
     // ---------------- JS 脚本 ----------------
     McpToolDefinition(
@@ -1219,5 +1231,19 @@ Future<Map<String, dynamic>> toolRemoveRewriteRule(Map<String, dynamic> args) as
     return _ok('rewrite rule removed');
   } catch (e) {
     return _err('remove rewrite rule failed: ${e.toString()}');
+  }
+}
+
+// ---- set_weak_network_enabled ----
+Future<Map<String, dynamic>> toolSetWeakNetworkEnabled(Map<String, dynamic> args) async {
+  try {
+    final m = await NetworkConditionManager.instance;
+    final enable = args['enable'] as bool?;
+    if (enable == null) return _err('enable is required');
+    m.enabled = enable;
+    await m.flushConfig();
+    return _ok({'enabled': m.enabled});
+  } catch (e) {
+    return _err('set weak network enabled failed: ${e.toString()}');
   }
 }
