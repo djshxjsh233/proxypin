@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:proxypin/native/installed_apps.dart';
@@ -280,6 +281,25 @@ Future<List<McpToolDefinition>> buildMcpTools() async {
         'required': ['body', 'key'],
       },
       handler: toolDecryptBody,
+    ),
+    McpToolDefinition(
+      name: 'encrypt_body',
+      description: '用 AES 加密一段明文（与 decrypt_body 对称，用于验证加密算法/构造请求体）。body 为明文文本；key/iv/mode/padding/keyLength 指定 AES 参数；ivSource=prefix 时自动生成随机 IV 并前置到密文。返回 base64 与 hex 密文。',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'body': {'type': 'string', 'description': '明文内容'},
+          'key': {'type': 'string', 'description': 'AES 密钥'},
+          'iv': {'type': 'string', 'description': 'CBC 模式的 IV'},
+          'ivSource': {'type': 'string', 'description': 'manual 或 prefix（自动生成 IV 前置），默认 manual', 'enum': ['manual', 'prefix']},
+          'ivPrefixLength': {'type': 'integer', 'description': 'prefix 模式 IV 长度，默认 16'},
+          'mode': {'type': 'string', 'description': 'ECB 或 CBC，默认 ECB', 'enum': ['ECB', 'CBC']},
+          'padding': {'type': 'string', 'description': '默认 PKCS7'},
+          'keyLength': {'type': 'integer', 'description': '默认 128'},
+        },
+        'required': ['body', 'key'],
+      },
+      handler: toolEncryptBody,
     ),
 
     // ---------------- 代理状态 ----------------
@@ -1637,5 +1657,64 @@ Future<Map<String, dynamic>> toolDecryptBody(Map<String, dynamic> args) async {
     });
   } catch (e) {
     return _err('decrypt failed: ${e.toString()}');
+  }
+}
+
+// ---- encrypt_body ----
+Future<Map<String, dynamic>> toolEncryptBody(Map<String, dynamic> args) async {
+  try {
+    final body = args['body'] as String?;
+    final key = args['key'] as String?;
+    if (body == null || body.isEmpty) return _err('body is required');
+    if (key == null || key.isEmpty) return _err('key is required');
+
+    final config = _cryptoConfigFromArgs(args);
+    final plain = utf8.encode(body);
+
+    // prefix 模式: 自动生成随机 IV 前置到密文
+    Uint8List prefixIv = Uint8List(0);
+    if (config.mode == 'CBC' && config.ivSource == 'prefix') {
+      final n = config.ivPrefixLength;
+      final rnd = Random.secure();
+      prefixIv = Uint8List(n);
+      for (var i = 0; i < n; i++) {
+        prefixIv[i] = rnd.nextInt(256);
+      }
+    }
+
+    final encrypted = AesUtils.encrypt(
+      plain,
+      key: config.key,
+      keyLength: config.keyLength,
+      mode: config.mode,
+      padding: config.padding,
+      iv: (config.mode == 'CBC' && config.ivSource == 'prefix')
+          ? 'base64:${base64.encode(prefixIv)}'
+          : (config.mode == 'CBC' ? config.iv : null),
+    );
+
+    // prefix 模式: IV 拼到密文前
+    final Uint8List full;
+    if (config.mode == 'CBC' && config.ivSource == 'prefix') {
+      full = Uint8List(prefixIv.length + encrypted.length);
+      full.setRange(0, prefixIv.length, prefixIv);
+      full.setRange(prefixIv.length, full.length, encrypted);
+    } else {
+      full = encrypted;
+    }
+
+    return _ok({
+      'encryptedBase64': base64.encode(full),
+      'encryptedHex': full.map((b) => b.toRadixString(16).padLeft(2, '0')).join(),
+      'encryptedLength': full.length,
+      'mode': config.mode,
+      'ivSource': config.ivSource,
+      'ivPrefixLength': config.ivPrefixLength,
+      // prefix 模式返回实际使用的 IV,便于对照
+      if (config.mode == 'CBC' && config.ivSource == 'prefix')
+        'generatedIvBase64': base64.encode(prefixIv),
+    });
+  } catch (e) {
+    return _err('encrypt failed: ${e.toString()}');
   }
 }
