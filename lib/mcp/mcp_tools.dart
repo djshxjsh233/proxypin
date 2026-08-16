@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:proxypin/native/installed_apps.dart';
 import 'package:proxypin/native/vpn.dart';
@@ -11,7 +12,9 @@ import 'package:proxypin/network/components/manager/request_breakpoint_manager.d
 import 'package:proxypin/network/components/manager/request_map_manager.dart';
 import 'package:proxypin/network/components/manager/network_condition_manager.dart';
 import 'package:proxypin/network/components/manager/request_rewrite_manager.dart';
+import 'package:proxypin/network/components/manager/request_crypto_manager.dart';
 import 'package:proxypin/network/components/manager/rewrite_rule.dart';
+import 'package:proxypin/utils/aes.dart';
 import 'package:proxypin/network/components/manager/script_manager.dart';
 import 'package:proxypin/network/components/request_breakpoint.dart';
 import 'package:proxypin/network/http/http.dart';
@@ -181,6 +184,102 @@ Future<List<McpToolDefinition>> buildMcpTools() async {
       description: '中止（丢弃）当前所有挂起的断点请求，使其不发出。返回被中止的数量。',
       inputSchema: {'type': 'object', 'properties': {}},
       handler: toolAbortIntercepts,
+    ),
+
+    // ---------------- 加解密 ----------------
+    McpToolDefinition(
+      name: 'list_crypto_rules',
+      description: '列出所有请求加解密规则（含总开关状态）。配置规则后，抓包详情会自动解密匹配请求/响应体。',
+      inputSchema: {'type': 'object', 'properties': {}},
+      handler: toolListCryptoRules,
+    ),
+    McpToolDefinition(
+      name: 'add_crypto_rule',
+      description: '新增请求加解密规则。urlPattern 为正则；key 为 AES 密钥；mode=CBC/ECB；padding=PKCS7/ZeroPadding 等；keyLength=128/192/256；CBC 需 iv（或 ivSource=prefix 用密文前 N 字节作 IV）。field 可选：从 JSON body 中提取指定字段解密（如 data 或 items[0].value）。',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'urlPattern': {'type': 'string', 'description': 'URL 正则匹配'},
+          'name': {'type': 'string', 'description': '规则名称（可选）'},
+          'key': {'type': 'string', 'description': 'AES 密钥'},
+          'iv': {'type': 'string', 'description': 'CBC 模式的 IV'},
+          'ivSource': {'type': 'string', 'description': 'IV 来源：manual=手动指定，prefix=密文前 N 字节', 'enum': ['manual', 'prefix']},
+          'ivPrefixLength': {'type': 'integer', 'description': 'prefix 模式的 IV 长度，默认 16'},
+          'mode': {'type': 'string', 'description': '加密模式：ECB 或 CBC，默认 ECB', 'enum': ['ECB', 'CBC']},
+          'padding': {'type': 'string', 'description': '填充方式，默认 PKCS7'},
+          'keyLength': {'type': 'integer', 'description': '密钥长度 128/192/256，默认 128'},
+          'field': {'type': 'string', 'description': '可选：从 JSON body 提取该字段解密'},
+          'enabled': {'type': 'boolean', 'description': '是否启用，默认 true'},
+        },
+        'required': ['urlPattern', 'key'],
+      },
+      handler: toolAddCryptoRule,
+    ),
+    McpToolDefinition(
+      name: 'update_crypto_rule',
+      description: '按 index 更新加解密规则。只更新传入的字段，其余保留。',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'index': {'type': 'integer', 'description': '规则序号'},
+          'urlPattern': {'type': 'string'},
+          'name': {'type': 'string'},
+          'key': {'type': 'string'},
+          'iv': {'type': 'string'},
+          'ivSource': {'type': 'string'},
+          'ivPrefixLength': {'type': 'integer'},
+          'mode': {'type': 'string'},
+          'padding': {'type': 'string'},
+          'keyLength': {'type': 'integer'},
+          'field': {'type': 'string'},
+          'enabled': {'type': 'boolean'},
+        },
+        'required': ['index'],
+      },
+      handler: toolUpdateCryptoRule,
+    ),
+    McpToolDefinition(
+      name: 'remove_crypto_rule',
+      description: '按 index 删除加解密规则。',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'index': {'type': 'integer', 'description': '规则序号'},
+        },
+        'required': ['index'],
+      },
+      handler: toolRemoveCryptoRule,
+    ),
+    McpToolDefinition(
+      name: 'set_crypto_enabled',
+      description: '开启/关闭请求加解密总开关。',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'enable': {'type': 'boolean', 'description': '是否启用加解密'},
+        },
+        'required': ['enable'],
+      },
+      handler: toolSetCryptoEnabled,
+    ),
+    McpToolDefinition(
+      name: 'decrypt_body',
+      description: '直接解密一段密文（不依赖规则）。body 可传 base64 密文或原始文本；key/iv/mode/padding/keyLength 指定 AES 参数；ivSource=prefix 时取密文前 N 字节作 IV。返回解密后的文本。分析签名/加密响应体利器。',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'body': {'type': 'string', 'description': '密文：base64 字符串或原始文本'},
+          'key': {'type': 'string', 'description': 'AES 密钥'},
+          'iv': {'type': 'string', 'description': 'CBC 模式的 IV'},
+          'ivSource': {'type': 'string', 'description': 'manual 或 prefix', 'enum': ['manual', 'prefix']},
+          'ivPrefixLength': {'type': 'integer', 'description': 'prefix 模式 IV 长度，默认 16'},
+          'mode': {'type': 'string', 'description': 'ECB 或 CBC，默认 ECB', 'enum': ['ECB', 'CBC']},
+          'padding': {'type': 'string', 'description': '默认 PKCS7'},
+          'keyLength': {'type': 'integer', 'description': '默认 128'},
+        },
+        'required': ['body', 'key'],
+      },
+      handler: toolDecryptBody,
     ),
 
     // ---------------- 代理状态 ----------------
@@ -1332,5 +1431,179 @@ Future<Map<String, dynamic>> toolAbortIntercepts(Map<String, dynamic> args) asyn
     return _ok({'aborted': count});
   } catch (e) {
     return _err('abort intercepts failed: ${e.toString()}');
+  }
+}
+
+// ---- 加解密 ----
+CryptoKeyConfig _cryptoConfigFromArgs(Map<String, dynamic> args, {CryptoKeyConfig? base}) {
+  final b = base ?? CryptoKeyConfig.defaults();
+  return b.copyWith(
+    key: args['key'] as String?,
+    iv: args['iv'] as String?,
+    ivSource: args['ivSource'] as String?,
+    ivPrefixLength: _toInt(args, 'ivPrefixLength', b.ivPrefixLength),
+    mode: args['mode'] as String?,
+    padding: args['padding'] as String?,
+    keyLength: _toInt(args, 'keyLength', b.keyLength),
+  );
+}
+
+// ---- list_crypto_rules ----
+Future<Map<String, dynamic>> toolListCryptoRules(Map<String, dynamic> args) async {
+  try {
+    final m = await RequestCryptoManager.instance;
+    final rules = m.rules.asMap().entries.map((e) {
+      final r = e.value;
+      return {
+        'index': e.key,
+        'name': r.name,
+        'urlPattern': r.urlPattern,
+        'field': r.field,
+        'enabled': r.enabled,
+        'config': r.config.toJson(),
+      };
+    }).toList();
+    return _ok({'enabled': m.enabled, 'rules': rules});
+  } catch (e) {
+    return _err('list crypto rules failed: ${e.toString()}');
+  }
+}
+
+// ---- add_crypto_rule ----
+Future<Map<String, dynamic>> toolAddCryptoRule(Map<String, dynamic> args) async {
+  try {
+    final m = await RequestCryptoManager.instance;
+    final urlPattern = args['urlPattern'] as String?;
+    final key = args['key'] as String?;
+    if (urlPattern == null || urlPattern.isEmpty) return _err('urlPattern is required');
+    if (key == null || key.isEmpty) return _err('key is required');
+
+    final rule = CryptoRule(
+      name: args['name'] as String? ?? 'mcp-crypto',
+      urlPattern: urlPattern,
+      field: args['field'] as String?,
+      enabled: args['enabled'] as bool? ?? true,
+      config: _cryptoConfigFromArgs(args),
+    );
+    m.rules.add(rule);
+    await m.flushConfig();
+    return _ok({'added': true, 'index': m.rules.length - 1});
+  } catch (e) {
+    return _err('add crypto rule failed: ${e.toString()}');
+  }
+}
+
+// ---- update_crypto_rule ----
+Future<Map<String, dynamic>> toolUpdateCryptoRule(Map<String, dynamic> args) async {
+  try {
+    final m = await RequestCryptoManager.instance;
+    final index = _toInt(args, 'index', -1);
+    if (index < 0 || index >= m.rules.length) return _err('index out of range');
+    final old = m.rules[index];
+    final rule = old.copyWith(
+      name: args['name'] as String?,
+      urlPattern: args['urlPattern'] as String?,
+      field: args['field'] as String?,
+      enabled: args['enabled'] as bool?,
+      config: _cryptoConfigFromArgs(args, base: old.config),
+    );
+    m.rules[index] = rule;
+    await m.flushConfig();
+    return _ok({'updated': true, 'index': index});
+  } catch (e) {
+    return _err('update crypto rule failed: ${e.toString()}');
+  }
+}
+
+// ---- remove_crypto_rule ----
+Future<Map<String, dynamic>> toolRemoveCryptoRule(Map<String, dynamic> args) async {
+  try {
+    final m = await RequestCryptoManager.instance;
+    final index = _toInt(args, 'index', -1);
+    if (index < 0 || index >= m.rules.length) return _err('index out of range');
+    m.rules.removeAt(index);
+    await m.flushConfig();
+    return _ok({'removed': true, 'index': index});
+  } catch (e) {
+    return _err('remove crypto rule failed: ${e.toString()}');
+  }
+}
+
+// ---- set_crypto_enabled ----
+Future<Map<String, dynamic>> toolSetCryptoEnabled(Map<String, dynamic> args) async {
+  try {
+    final m = await RequestCryptoManager.instance;
+    final enable = args['enable'] as bool?;
+    if (enable == null) return _err('enable is required');
+    m.enabled = enable;
+    await m.flushConfig();
+    return _ok({'enabled': m.enabled});
+  } catch (e) {
+    return _err('set crypto enabled failed: ${e.toString()}');
+  }
+}
+
+// ---- decrypt_body ----
+Future<Map<String, dynamic>> toolDecryptBody(Map<String, dynamic> args) async {
+  try {
+    final body = args['body'] as String?;
+    final key = args['key'] as String?;
+    if (body == null || body.isEmpty) return _err('body is required');
+    if (key == null || key.isEmpty) return _err('key is required');
+
+    final config = _cryptoConfigFromArgs(args);
+
+    // 输入解析: 优先按 base64 解码, 否则按 utf8 原文
+    Uint8List cipher;
+    final trimmed = body.trim();
+    try {
+      cipher = base64.decode(trimmed);
+    } catch (_) {
+      cipher = utf8.encode(body);
+    }
+
+    // prefix 模式: 取前 N 字节作 IV
+    Uint8List ivBytes = Uint8List(0);
+    if (config.mode == 'CBC' && config.ivSource == 'prefix') {
+      final n = config.ivPrefixLength;
+      if (cipher.length <= n) return _err('cipher too short for prefix IV (len=${cipher.length}, need >$n)');
+      ivBytes = cipher.sublist(0, n);
+      cipher = cipher.sublist(n);
+      // 非 PKCS7 需要块对齐
+      if (config.padding != 'PKCS7' && cipher.length % 16 != 0) {
+        return _err('cipher length ${cipher.length} not multiple of 16 (non-PKCS7 padding)');
+      }
+    }
+
+    final decrypted = AesUtils.decrypt(
+      cipher,
+      key: config.key,
+      keyLength: config.keyLength,
+      mode: config.mode,
+      padding: config.padding,
+      iv: (config.mode == 'CBC' && config.ivSource == 'prefix')
+          ? 'base64:${base64.encode(ivBytes)}'
+          : (config.mode == 'CBC' ? config.iv : null),
+    );
+
+    // 结果: 尝试 utf8 解码为文本, 同时给 base64/hex 备选
+    String text;
+    String? utf8Text;
+    try {
+      utf8Text = utf8.decode(decrypted);
+      text = utf8Text;
+    } catch (_) {
+      utf8Text = null;
+      text = '';
+    }
+    return _ok({
+      'decryptedText': text,
+      'decryptedBase64': base64.encode(decrypted),
+      'decryptedHex': decrypted.map((b) => b.toRadixString(16).padLeft(2, '0')).join(),
+      'decryptedLength': decrypted.length,
+      'utf8Valid': utf8Text != null,
+    });
+  } catch (e) {
+    return _err('decrypt failed: ${e.toString()}');
   }
 }
