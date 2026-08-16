@@ -314,6 +314,18 @@ Future<List<McpToolDefinition>> buildMcpTools() async {
       },
       handler: toolDetectBodyEncoding,
     ),
+    McpToolDefinition(
+      name: 'analyze_signature',
+      description: '分析一段签名/密文参数，识别可能算法：MD5(32hex)、SHA1(40hex)、SHA224(56hex)、SHA256(64hex)、base64、AES 密文特征等。还原接口 sign 参数时先跑这个缩小算法范围。',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'value': {'type': 'string', 'description': '要分析的签名值（如 URL 里的 sig 参数）'},
+        },
+        'required': ['value'],
+      },
+      handler: toolAnalyzeSignature,
+    ),
 
     // ---------------- 代理状态 ----------------
     McpToolDefinition(
@@ -1851,5 +1863,68 @@ Future<Map<String, dynamic>> toolDetectBodyEncoding(Map<String, dynamic> args) a
     return _ok(result);
   } catch (e) {
     return _err('detect failed: ${e.toString()}');
+  }
+}
+
+// ---- analyze_signature ----
+Future<Map<String, dynamic>> toolAnalyzeSignature(Map<String, dynamic> args) async {
+  try {
+    final value = args['value'] as String?;
+    if (value == null || value.isEmpty) return _err('value is required');
+    final s = value.trim();
+
+    final result = <String, dynamic>{
+      'length': s.length,
+      'input': s.length > 100 ? '${s.substring(0, 100)}...' : s,
+    };
+
+    // 1. hex 检测 + 哈希算法识别
+    final isHex = RegExp(r'^[0-9a-fA-F]+$').hasMatch(s);
+    result['isHex'] = isHex;
+    if (isHex) {
+      final n = s.length;
+      final candidates = <String>[];
+      if (n == 32) candidates.add('MD5 / HmacMD5 / AES-ECB(无IV) 密文(128bit)');
+      if (n == 40) candidates.add('SHA1 / HmacSHA1');
+      if (n == 56) candidates.add('SHA224 / HmacSHA224');
+      if (n == 64) candidates.add('SHA256 / HmacSHA256');
+      if (n == 96) candidates.add('SHA384 / HmacSHA384');
+      if (n == 128) candidates.add('SHA512 / HmacSHA512 / AES-256 密文');
+      if (n % 32 == 0 && n >= 64) candidates.add('可能为多个哈希拼接 或 AES 密文(${n ~/ 2}字节, ${n ~/ 32}个块)');
+      result['possibleAlgorithms'] = candidates;
+    }
+
+    // 2. base64 检测
+    final isB64 = RegExp(r'^[A-Za-z0-9+/]+={0,2}$').hasMatch(s) && s.length % 4 == 0;
+    result['isBase64'] = isB64;
+    if (isB64 && !(isHex && s.length % 2 == 0)) {
+      try {
+        final bytes = base64.decode(s);
+        result['base64DecodedLength'] = bytes.length;
+        // base64 解码后如果是 hex 长度匹配也提示
+        if (bytes.length == 16) result['base64DecodedHint'] = '16字节 → 可能为 AES-128 密文块 / 原始MD5摘要';
+        if (bytes.length == 32) result['base64DecodedHint'] = '32字节 → 可能为 AES-256 密文块 / SHA256原始摘要';
+        // 是否像文本
+        try {
+          final t = utf8.decode(bytes);
+          result['base64TextPreview'] = t.length > 60 ? t.substring(0, 60) : t;
+        } catch (_) {}
+      } catch (_) {}
+    }
+
+    // 3. 常见拼接特征: k=v&k=v 形式 (签名常基于参数拼接)
+    if (s.contains('&') && s.contains('=')) {
+      final params = s.split('&').where((p) => p.contains('=')).length;
+      result['looksLikeParamString'] = true;
+      result['paramCount'] = params;
+    }
+
+    // 4. 时间戳/随机串特征
+    if (RegExp(r'^\d{10}$').hasMatch(s)) result['possibleAlgorithms'] = ['Unix秒级时间戳(10位)'];
+    if (RegExp(r'^\d{13}$').hasMatch(s)) result['possibleAlgorithms'] = ['Unix毫秒时间戳(13位)'];
+
+    return _ok(result);
+  } catch (e) {
+    return _err('analyze signature failed: ${e.toString()}');
   }
 }
