@@ -624,21 +624,35 @@ Map<String, dynamic> _reqSummary(HttpRequest r) {
 }
 
 /// 请求完整详情
+/// 安全 base64: body 必须是 0-255 的字节序列才编码; 历史 HAR 还原的 UTF-16 code units
+/// (值 >255, 如中文 0x6210) 无法作为字节, 返回 null 避免抛 Not a byte value。
+String? _safeBase64(List<int>? bytes) {
+  if (bytes == null || bytes.isEmpty) return null;
+  for (final b in bytes) {
+    if (b < 0 || b > 255) return null;
+  }
+  try {
+    return base64.encode(bytes);
+  } catch (_) {
+    return null;
+  }
+}
+
 Map<String, dynamic> _reqDetail(HttpRequest r) {
   final resp = r.response;
   // 请求/响应体: 用 getBodyString() 自动解压 gzip/br/deflate(与 App 显示一致),
-  // 同时提供 bodyBase64 无损原始字节(供解密/签名分析)。
+  // 同时提供 bodyBase64 无损原始字节(供解密/签名分析; 非字节序列时为 null)。
   String? reqBodyText;
   String? reqBodyB64;
   if (r.body != null && r.body!.isNotEmpty) {
     reqBodyText = r.getBodyString();
-    reqBodyB64 = base64.encode(r.body!);
+    reqBodyB64 = _safeBase64(r.body);
   }
   String? respBodyText;
   String? respBodyB64;
   if (resp?.body != null && resp!.body!.isNotEmpty) {
     respBodyText = resp.getBodyString();
-    respBodyB64 = base64.encode(resp.body!);
+    respBodyB64 = _safeBase64(resp.body);
   }
   return {
     'method': r.method.name,
