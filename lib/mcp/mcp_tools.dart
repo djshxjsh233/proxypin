@@ -1884,8 +1884,9 @@ Future<Map<String, dynamic>> toolAnalyzeSignature(Map<String, dynamic> args) asy
     if (isHex) {
       final n = s.length;
       final candidates = <String>[];
-      if (n == 32) candidates.add('MD5 / HmacMD5 / AES-ECB(无IV) 密文(128bit)');
+      if (n == 32) candidates.add('MD5 / HmacMD5(最常见, 如参数拼接后md5) / 也可能是AES-128-ECB密文hex');
       if (n == 40) candidates.add('SHA1 / HmacSHA1');
+      if (n == 48) candidates.add('24字节 → AES-192 密文 / MD5+SHA1 拼接 / HmacMD5(2轮)');
       if (n == 56) candidates.add('SHA224 / HmacSHA224');
       if (n == 64) candidates.add('SHA256 / HmacSHA256');
       if (n == 96) candidates.add('SHA384 / HmacSHA384');
