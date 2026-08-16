@@ -47,6 +47,39 @@ class DeviceControlPlugin : AndroidFlutterPlugin() {
                             result.success(readFile(path))
                         }.start()
                     }
+                    "listDir" -> {
+                        val path = call.argument<String>("path") ?: ""
+                        Thread {
+                            result.success(listDir(path))
+                        }.start()
+                    }
+                    "writeFile" -> {
+                        val path = call.argument<String>("path") ?: ""
+                        val content = call.argument<String>("content") ?: ""
+                        Thread {
+                            result.success(writeFile(path, content))
+                        }.start()
+                    }
+                    "copyFile" -> {
+                        val src = call.argument<String>("src") ?: ""
+                        val dst = call.argument<String>("dst") ?: ""
+                        Thread {
+                            result.success(copyFile(src, dst))
+                        }.start()
+                    }
+                    "moveFile" -> {
+                        val src = call.argument<String>("src") ?: ""
+                        val dst = call.argument<String>("dst") ?: ""
+                        Thread {
+                            result.success(moveFile(src, dst))
+                        }.start()
+                    }
+                    "deleteFile" -> {
+                        val path = call.argument<String>("path") ?: ""
+                        Thread {
+                            result.success(deleteFile(path))
+                        }.start()
+                    }
                     "getForegroundActivity" -> {
                         Thread {
                             result.success(runShell("dumpsys activity activities | grep -E 'mResumedActivity|topResumedActivity' | head -3", true))
@@ -151,6 +184,33 @@ class DeviceControlPlugin : AndroidFlutterPlugin() {
     private fun readFile(path: String): Map<String, Any?> {
         val r = runShell("cat \"$path\"", useSu = true)
         return r
+    }
+
+    /** 列出目录内容(root 可看 /data) */
+    private fun listDir(path: String): Map<String, Any?> {
+        return runShell("ls -la \"$path\"", useSu = true)
+    }
+
+    /** 写文件(root, 可写 /data) */
+    private fun writeFile(path: String, content: String): Map<String, Any?> {
+        // 用 base64 传输避免转义问题
+        val b64 = Base64.encodeToString(content.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+        return runShell("echo \"$b64\" | base64 -d > \"$path\"", useSu = true)
+    }
+
+    /** 复制文件(跨目录, root) */
+    private fun copyFile(src: String, dst: String): Map<String, Any?> {
+        return runShell("cp -rf \"$src\" \"$dst\" && chmod -R 777 \"$dst\" 2>/dev/null; echo COPY_OK", useSu = true)
+    }
+
+    /** 移动文件(跨目录, root) */
+    private fun moveFile(src: String, dst: String): Map<String, Any?> {
+        return runShell("mv -f \"$src\" \"$dst\" 2>/dev/null || (cp -rf \"$src\" \"$dst\" && rm -rf \"$src\"); echo MOVE_OK", useSu = true)
+    }
+
+    /** 删除文件/目录(root) */
+    private fun deleteFile(path: String): Map<String, Any?> {
+        return runShell("rm -rf \"$path\" && echo DELETE_OK", useSu = true)
     }
 
     /** logcat 抓日志 */

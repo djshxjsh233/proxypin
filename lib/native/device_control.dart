@@ -19,6 +19,31 @@ class DeviceControl {
     return await _channel.invokeMethod('readFile', {'path': path});
   }
 
+  /// 列出目录内容 (root, 可看 /data)
+  static Future<Map<dynamic, dynamic>> listDir(String path) async {
+    return await _channel.invokeMethod('listDir', {'path': path});
+  }
+
+  /// 写文件 (root)
+  static Future<Map<dynamic, dynamic>> writeFile(String path, String content) async {
+    return await _channel.invokeMethod('writeFile', {'path': path, 'content': content});
+  }
+
+  /// 复制文件 (root)
+  static Future<Map<dynamic, dynamic>> copyFile(String src, String dst) async {
+    return await _channel.invokeMethod('copyFile', {'src': src, 'dst': dst});
+  }
+
+  /// 移动文件 (root)
+  static Future<Map<dynamic, dynamic>> moveFile(String src, String dst) async {
+    return await _channel.invokeMethod('moveFile', {'src': src, 'dst': dst});
+  }
+
+  /// 删除文件/目录 (root)
+  static Future<Map<dynamic, dynamic>> deleteFile(String path) async {
+    return await _channel.invokeMethod('deleteFile', {'path': path});
+  }
+
   /// 当前前台 Activity
   static Future<Map<dynamic, dynamic>> getForegroundActivity() async {
     return await _channel.invokeMethod('getForegroundActivity');

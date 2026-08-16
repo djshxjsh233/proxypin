@@ -433,6 +433,69 @@ Future<List<McpToolDefinition>> buildMcpTools() async {
       handler: toolSqliteQuery,
     ),
     McpToolDefinition(
+      name: 'list_dir',
+      description: '列出设备目录内容（root，可看 /data/data 等私有目录）。',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'path': {'type': 'string', 'description': '目录绝对路径，如 /data/data/com.xxx'},
+        },
+        'required': ['path'],
+      },
+      handler: toolListDir,
+    ),
+    McpToolDefinition(
+      name: 'write_private_file',
+      description: '写文件到设备任意路径（root，可写 /data）。内容按 utf-8 写入。',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'path': {'type': 'string', 'description': '目标文件绝对路径'},
+          'content': {'type': 'string', 'description': '要写入的内容'},
+        },
+        'required': ['path', 'content'],
+      },
+      handler: toolWritePrivateFile,
+    ),
+    McpToolDefinition(
+      name: 'copy_file',
+      description: '复制设备文件/目录（root，跨 /data 与 /sdcard 均可）。',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'src': {'type': 'string', 'description': '源路径'},
+          'dst': {'type': 'string', 'description': '目标路径'},
+        },
+        'required': ['src', 'dst'],
+      },
+      handler: toolCopyFile,
+    ),
+    McpToolDefinition(
+      name: 'move_file',
+      description: '移动设备文件/目录（root）。',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'src': {'type': 'string', 'description': '源路径'},
+          'dst': {'type': 'string', 'description': '目标路径'},
+        },
+        'required': ['src', 'dst'],
+      },
+      handler: toolMoveFile,
+    ),
+    McpToolDefinition(
+      name: 'delete_file',
+      description: '删除设备文件/目录（root）。',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'path': {'type': 'string', 'description': '要删除的路径'},
+        },
+        'required': ['path'],
+      },
+      handler: toolDeleteFile,
+    ),
+    McpToolDefinition(
       name: 'read_private_file',
       description: '读取 /data/data/<包名>/ 下的私有文件（db/preferences/xml/缓存等）。需要 root。返回文件内容。',
       inputSchema: {
@@ -2307,6 +2370,74 @@ Future<Map<String, dynamic>> toolReadPrivateFile(Map<String, dynamic> args) asyn
     });
   } catch (e) {
     return _err('read file failed: ${e.toString()}');
+  }
+}
+
+// ---- list_dir ----
+Future<Map<String, dynamic>> toolListDir(Map<String, dynamic> args) async {
+  try {
+    final path = args['path'] as String?;
+    if (path == null || path.isEmpty) return _err('path is required');
+    final r = await DeviceControl.listDir(path);
+    return _ok({
+      'exitCode': r['exitCode'],
+      'listing': r['stdout'],
+      'stderr': r['stderr'],
+    });
+  } catch (e) {
+    return _err('list dir failed: ${e.toString()}');
+  }
+}
+
+// ---- write_private_file ----
+Future<Map<String, dynamic>> toolWritePrivateFile(Map<String, dynamic> args) async {
+  try {
+    final path = args['path'] as String?;
+    final content = args['content'] as String?;
+    if (path == null || path.isEmpty) return _err('path is required');
+    if (content == null) return _err('content is required');
+    final r = await DeviceControl.writeFile(path, content);
+    return _ok({'exitCode': r['exitCode'], 'path': path, 'stderr': r['stderr']});
+  } catch (e) {
+    return _err('write file failed: ${e.toString()}');
+  }
+}
+
+// ---- copy_file ----
+Future<Map<String, dynamic>> toolCopyFile(Map<String, dynamic> args) async {
+  try {
+    final src = args['src'] as String?;
+    final dst = args['dst'] as String?;
+    if (src == null || dst == null || src.isEmpty || dst.isEmpty) return _err('src and dst are required');
+    final r = await DeviceControl.copyFile(src, dst);
+    return _ok({'exitCode': r['exitCode'], 'src': src, 'dst': dst, 'stdout': r['stdout']});
+  } catch (e) {
+    return _err('copy file failed: ${e.toString()}');
+  }
+}
+
+// ---- move_file ----
+Future<Map<String, dynamic>> toolMoveFile(Map<String, dynamic> args) async {
+  try {
+    final src = args['src'] as String?;
+    final dst = args['dst'] as String?;
+    if (src == null || dst == null || src.isEmpty || dst.isEmpty) return _err('src and dst are required');
+    final r = await DeviceControl.moveFile(src, dst);
+    return _ok({'exitCode': r['exitCode'], 'src': src, 'dst': dst, 'stdout': r['stdout']});
+  } catch (e) {
+    return _err('move file failed: ${e.toString()}');
+  }
+}
+
+// ---- delete_file ----
+Future<Map<String, dynamic>> toolDeleteFile(Map<String, dynamic> args) async {
+  try {
+    final path = args['path'] as String?;
+    if (path == null || path.isEmpty) return _err('path is required');
+    final r = await DeviceControl.deleteFile(path);
+    return _ok({'exitCode': r['exitCode'], 'path': path, 'stdout': r['stdout']});
+  } catch (e) {
+    return _err('delete file failed: ${e.toString()}');
   }
 }
 
