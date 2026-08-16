@@ -50,6 +50,15 @@ class DeviceControlPlugin : AndroidFlutterPlugin() {
                             result.success(r)
                         }.start()
                     }
+                    "readFileChunk" -> {
+                        val path = call.argument<String>("path") ?: ""
+                        val offset = call.argument<Long>("offset") ?: 0L
+                        val chunkSize = call.argument<Long>("chunkSize") ?: 4000L
+                        Thread {
+                            val r: Map<String, Any?> = readFileChunk(path, offset, chunkSize)
+                            result.success(r)
+                        }.start()
+                    }
                     "listDir" -> {
                         val path = call.argument<String>("path") ?: ""
                         Thread {
@@ -200,6 +209,15 @@ class DeviceControlPlugin : AndroidFlutterPlugin() {
     private fun readFile(path: String): Map<String, Any?> {
         val r = runShell("cat \"$path\"", useSu = true)
         return r
+    }
+
+    /** 分块读取文件(root): 从 offset 起读 chunkSize 字节, base64 返回 */
+    private fun readFileChunk(path: String, offset: Long, chunkSize: Long): Map<String, Any?> {
+        // dd 按偏移读指定字节, base64 编码输出
+        return runShell(
+            "dd if=\"$path\" bs=1 skip=$offset count=$chunkSize 2>/dev/null | base64 -w 0",
+            useSu = true
+        )
     }
 
     /** 列出目录内容(root 可看 /data) */

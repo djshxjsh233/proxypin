@@ -19,6 +19,13 @@ class DeviceControl {
     return await _channel.invokeMethod('readFile', {'path': path});
   }
 
+  /// 分块读取私有文件 (root, 从 offset 读 chunkSize 字节, base64 返回)
+  static Future<Map<dynamic, dynamic>> readFileChunk(String path, int offset, int chunkSize) async {
+    return await _channel.invokeMethod('readFileChunk', {
+      'path': path, 'offset': offset, 'chunkSize': chunkSize
+    });
+  }
+
   /// 列出目录内容 (root, 可看 /data)
   static Future<Map<dynamic, dynamic>> listDir(String path) async {
     return await _channel.invokeMethod('listDir', {'path': path});

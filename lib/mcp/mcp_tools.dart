@@ -496,6 +496,18 @@ Future<List<McpToolDefinition>> buildMcpTools() async {
       handler: toolDeleteFile,
     ),
     McpToolDefinition(
+      name: 'pull_file',
+      description: '分块拉取设备文件到本地（root，可拉 /data/data 私有文件）。自动循环读取直到完整。返回 base64 数据（本地拼接解码）。大文件（db/apk）用这个。',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'path': {'type': 'string', 'description': '设备文件绝对路径'},
+        },
+        'required': ['path'],
+      },
+      handler: toolPullFile,
+    ),
+    McpToolDefinition(
       name: 'read_private_file',
       description: '读取 /data/data/<包名>/ 下的私有文件（db/preferences/xml/缓存等）。需要 root。返回文件内容。',
       inputSchema: {
@@ -2438,6 +2450,33 @@ Future<Map<String, dynamic>> toolDeleteFile(Map<String, dynamic> args) async {
     return _ok({'exitCode': r['exitCode'], 'path': path, 'stdout': r['stdout']});
   } catch (e) {
     return _err('delete file failed: ${e.toString()}');
+  }
+}
+
+// ---- pull_file ----
+Future<Map<String, dynamic>> toolPullFile(Map<String, dynamic> args) async {
+  try {
+    final path = args['path'] as String?;
+    if (path == null || path.isEmpty) return _err('path is required');
+    // 单块约 3000 字节(base64 后 ~4000 字符, 避开 MCP 8000 截断)
+    const int chunkSize = 3000;
+    final sb = StringBuffer();
+    int offset = 0;
+    int total = 0;
+    while (true) {
+      final r = await DeviceControl.readFileChunk(path, offset, chunkSize);
+      final out = r['stdout'] as String? ?? '';
+      final b64 = out.trim();
+      if (b64.isEmpty) break; // 读完了
+      sb.write(b64);
+      total += b64.length;
+      offset += chunkSize;
+      if (total > 20000000) return _err('file too large (>20MB base64)');
+    }
+    if (total == 0) return _err('file empty or unreadable: $path');
+    return _ok({'path': path, 'base64': sb.toString(), 'base64Length': total});
+  } catch (e) {
+    return _err('pull file failed: ${e.toString()}');
   }
 }
 
