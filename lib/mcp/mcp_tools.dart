@@ -16,6 +16,7 @@ import 'package:proxypin/network/components/manager/request_rewrite_manager.dart
 import 'package:proxypin/network/components/manager/request_crypto_manager.dart';
 import 'package:proxypin/network/components/manager/rewrite_rule.dart';
 import 'package:proxypin/utils/aes.dart';
+import 'package:proxypin/utils/crypto_body_decoder.dart';
 import 'package:proxypin/network/components/manager/script_manager.dart';
 import 'package:proxypin/network/components/request_breakpoint.dart';
 import 'package:proxypin/network/http/http.dart';
@@ -670,21 +671,48 @@ String? _safeBase64(List<int>? bytes) {
   }
 }
 
-Map<String, dynamic> _reqDetail(HttpRequest r) {
+/// 尝试按加解密规则解密 body, 返回 (明文文本, 是否命中规则, 规则名)。
+Future<(String?, bool, String?)> _tryDecryptBody(HttpMessage message) async {
+  if (message.body == null || message.body!.isEmpty) return (null, false, null);
+  try {
+    final result = await CryptoBodyDecoder.maybeDecode(message);
+    if (result != null && result.hasText) {
+      return (result.text, true, result.rule?.name);
+    }
+  } catch (_) {}
+  return (null, false, null);
+}
+
+Future<Map<String, dynamic>> _reqDetail(HttpRequest r) async {
   final resp = r.response;
   // 请求/响应体: 用 getBodyString() 自动解压 gzip/br/deflate(与 App 显示一致),
   // 同时提供 bodyBase64 无损原始字节(供解密/签名分析; 非字节序列时为 null)。
+  // 若配置了加解密规则且命中, 额外提供解密后的明文(decryptedText)与规则名。
   String? reqBodyText;
   String? reqBodyB64;
+  String? reqDecrypted;
+  bool reqDecryptedHit = false;
+  String? reqDecryptedRule;
   if (r.body != null && r.body!.isNotEmpty) {
     reqBodyText = r.getBodyString();
     reqBodyB64 = _safeBase64(r.body);
+    final dec = await _tryDecryptBody(r);
+    reqDecrypted = dec.$1;
+    reqDecryptedHit = dec.$2;
+    reqDecryptedRule = dec.$3;
   }
   String? respBodyText;
   String? respBodyB64;
+  String? respDecrypted;
+  bool respDecryptedHit = false;
+  String? respDecryptedRule;
   if (resp?.body != null && resp!.body!.isNotEmpty) {
     respBodyText = resp.getBodyString();
     respBodyB64 = _safeBase64(resp.body);
+    final dec = await _tryDecryptBody(resp);
+    respDecrypted = dec.$1;
+    respDecryptedHit = dec.$2;
+    respDecryptedRule = dec.$3;
   }
   return {
     'method': r.method.name,
@@ -694,6 +722,8 @@ Map<String, dynamic> _reqDetail(HttpRequest r) {
     'requestBody': reqBodyText,
     'requestBodyBase64': reqBodyB64,
     'requestContentEncoding': r.headers.contentEncoding,
+    if (reqDecryptedHit) 'requestDecryptedText': reqDecrypted,
+    if (reqDecryptedHit) 'requestDecryptedRule': reqDecryptedRule,
     'response': resp == null
         ? null
         : {
@@ -703,6 +733,8 @@ Map<String, dynamic> _reqDetail(HttpRequest r) {
             'body': respBodyText,
             'bodyBase64': respBodyB64,
             'contentEncoding': resp.headers.contentEncoding,
+            if (respDecryptedHit) 'decryptedText': respDecrypted,
+            if (respDecryptedHit) 'decryptedRule': respDecryptedRule,
           },
     'requestTime': r.requestTime.millisecondsSinceEpoch,
   };
@@ -745,7 +777,7 @@ Future<Map<String, dynamic>> toolGetRequestDetail(Map<String, dynamic> args) asy
   final index = _toInt(args, 'index', -1);
   final reqs = await _allRequests();
   if (index < 0 || index >= reqs.length) return _err('index out of range');
-  return _ok(_reqDetail(reqs[index]));
+  return _ok(await _reqDetail(reqs[index]));
 }
 
 // ---- search_requests ----
@@ -756,7 +788,7 @@ Future<Map<String, dynamic>> toolSearchRequests(Map<String, dynamic> args) async
   final reqs = await _allRequests();
   final results = <Map<String, dynamic>>[];
   for (final r in reqs) {
-    final detail = _reqDetail(r);
+    final detail = await _reqDetail(r);
     var match = true;
     if (urlKw != null && urlKw.isNotEmpty && !(detail['url'] as String).contains(urlKw)) {
       match = false;
@@ -904,7 +936,9 @@ Future<Map<String, dynamic>> toolGetHistoryRequests(Map<String, dynamic> args) a
 
     final reqs = await storage.getRequests(target);
     final detail = args['detail'] as bool? ?? false;
-    final list = detail ? reqs.map(_reqDetail).toList() : reqs.map(_reqSummary).toList();
+    final list = detail
+        ? await Future.wait(reqs.map((r) => _reqDetail(r)).toList())
+        : reqs.map(_reqSummary).toList();
     return _ok({'historyName': target.name, 'total': list.length, 'requests': list});
   } catch (e) {
     return _err('read history requests failed: ${e.toString()}');
@@ -939,7 +973,7 @@ Future<Map<String, dynamic>> toolGetHistoryRequestDetail(Map<String, dynamic> ar
     if (reqIndex < 0 || reqIndex >= reqs.length) {
       return _err('request index out of range');
     }
-    return _ok(_reqDetail(reqs[reqIndex]));
+    return _ok(await _reqDetail(reqs[reqIndex]));
   } catch (e) {
     return _err('read history request detail failed: ${e.toString()}');
   }
