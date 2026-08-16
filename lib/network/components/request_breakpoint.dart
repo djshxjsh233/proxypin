@@ -5,6 +5,7 @@ import 'package:proxypin/network/components/interceptor.dart';
 import 'package:proxypin/network/components/manager/environment_manager.dart';
 import 'package:proxypin/network/components/manager/request_breakpoint_manager.dart';
 import 'package:proxypin/network/http/http.dart';
+import 'package:proxypin/network/channel/host_port.dart';
 import 'package:proxypin/network/util/cache.dart';
 import 'package:proxypin/network/util/logger.dart';
 import 'package:proxypin/ui/component/multi_window.dart';
@@ -117,14 +118,29 @@ class RequestBreakpointInterceptor extends Interceptor {
           // 先渲染 URI 中的 {{var}}(如 host / path / query 里可能用到)
           final renderedUri = _renderEnv(req.uri) ?? req.uri;
           Uri uri = Uri.parse(renderedUri);
-          if (uri.isScheme('https')) {
+          // 放行时支持跨域改道:若新的 uri 是完整 URL(含 host),记录目标 host,稍后同步更新 Host 头与连接目标。
+          HostAndPort? newHp;
+          if (uri.host.isNotEmpty) {
+            newHp = HostAndPort.of(renderedUri);
+            request.hostAndPort = newHp;
             request.uri = uri.path + (uri.hasQuery ? "?${uri.query}" : "");
           } else {
-            request.uri = uri.toString();
+            if (uri.isScheme('https')) {
+              request.uri = uri.path + (uri.hasQuery ? "?${uri.query}" : "");
+            } else {
+              request.uri = uri.toString();
+            }
           }
 
           request.headers.clear();
           request.headers.addAll(req.headers);
+          // 跨域改道时覆盖 Host 头为目标 host(代理按 Host 头路由连接)
+          if (newHp != null) {
+            final hostHeader =
+                newHp.host + ((newHp.port != 80 && newHp.port != 443) ? ":${newHp.port}" : "");
+            request.headers.set(HttpHeaders.HOST, hostHeader);
+          }
+          _renderHeadersInPlace(request.headers);
           _renderHeadersInPlace(request.headers);
           request.headers.remove(HttpHeaders.CONTENT_ENCODING);
 
