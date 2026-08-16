@@ -393,27 +393,25 @@ Future<List<McpToolDefinition>> buildMcpTools() async {
     // ---------------- 设备控制 ----------------
     McpToolDefinition(
       name: 'run_device_shell',
-      description: '在设备上执行 shell 命令（优先 root/su，回退普通 sh）。用于启动服务、读写文件、查看进程等。返回 exitCode/stdout/stderr。',
+      description: '设备控制统一入口（合并 shell/启动App/UI操作）。action 指定操作类型：shell=执行命令(默认,支持root)，launch=启动App，ui_dump=获取UI视图树，tap=点击，swipe=滑动，input=输入文本。返回 exitCode/stdout/stderr。',
       inputSchema: {
         'type': 'object',
         'properties': {
-          'command': {'type': 'string', 'description': '要执行的 shell 命令'},
+          'action': {'type': 'string', 'description': '操作类型：shell/launch/ui_dump/tap/swipe/input，默认 shell', 'enum': ['shell', 'launch', 'ui_dump', 'tap', 'swipe', 'input']},
+          'command': {'type': 'string', 'description': 'action=shell 时：要执行的 shell 命令'},
+          'use_su': {'type': 'boolean', 'description': 'action=shell 时：是否用 root/su 执行，默认 true'},
+          'packageName': {'type': 'string', 'description': 'action=launch 时：App 包名'},
+          'x': {'type': 'integer', 'description': 'action=tap 时：X 坐标'},
+          'y': {'type': 'integer', 'description': 'action=tap 时：Y 坐标'},
+          'x1': {'type': 'integer', 'description': 'action=swipe 时：起点 X'},
+          'y1': {'type': 'integer', 'description': 'action=swipe 时：起点 Y'},
+          'x2': {'type': 'integer', 'description': 'action=swipe 时：终点 X'},
+          'y2': {'type': 'integer', 'description': 'action=swipe 时：终点 Y'},
+          'durationMs': {'type': 'integer', 'description': 'action=swipe 时：时长毫秒，默认 300'},
+          'text': {'type': 'string', 'description': 'action=input 时：要输入的文本'},
         },
-        'required': ['command'],
       },
       handler: toolRunDeviceShell,
-    ),
-    McpToolDefinition(
-      name: 'launch_app',
-      description: '启动指定包名的 App（如 com.kuaishou.nebula）。返回是否启动成功。',
-      inputSchema: {
-        'type': 'object',
-        'properties': {
-          'packageName': {'type': 'string', 'description': 'App 包名'},
-        },
-        'required': ['packageName'],
-      },
-      handler: toolLaunchApp,
     ),
     McpToolDefinition(
       name: 'take_screenshot',
@@ -422,51 +420,48 @@ Future<List<McpToolDefinition>> buildMcpTools() async {
       handler: toolTakeScreenshot,
     ),
     McpToolDefinition(
-      name: 'get_ui_elements',
-      description: 'dump 当前屏幕 UI 层级（uiautomator XML），用于了解界面结构后定位点击坐标。',
+      name: 'sqlite_query',
+      description: '查询 App 私有 sqlite 数据库（如 /data/data/<包名>/databases/*.db 的频道/直播源配置）。需要 root。返回查询结果。',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'dbPath': {'type': 'string', 'description': '数据库文件绝对路径'},
+          'query': {'type': 'string', 'description': 'SQL 语句，如 SELECT * FROM table LIMIT 20'},
+        },
+        'required': ['dbPath', 'query'],
+      },
+      handler: toolSqliteQuery,
+    ),
+    McpToolDefinition(
+      name: 'read_private_file',
+      description: '读取 /data/data/<包名>/ 下的私有文件（db/preferences/xml/缓存等）。需要 root。返回文件内容。',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'path': {'type': 'string', 'description': '文件绝对路径'},
+        },
+        'required': ['path'],
+      },
+      handler: toolReadPrivateFile,
+    ),
+    McpToolDefinition(
+      name: 'get_foreground_activity',
+      description: '查看当前前台 Activity（确认 App 停在哪个页面）。',
       inputSchema: {'type': 'object', 'properties': {}},
-      handler: toolGetUiElements,
+      handler: toolGetForegroundActivity,
     ),
     McpToolDefinition(
-      name: 'tap_screen',
-      description: '模拟点击屏幕指定坐标（如 tap_screen x=500 y=800）。',
+      name: 'get_logcat',
+      description: '抓取系统/App 日志。package 过滤包名，lines 行数，clear 是否先清空。用于分析崩溃/协议错误。',
       inputSchema: {
         'type': 'object',
         'properties': {
-          'x': {'type': 'integer', 'description': 'X 坐标'},
-          'y': {'type': 'integer', 'description': 'Y 坐标'},
+          'package': {'type': 'string', 'description': '过滤包名关键词（可选）'},
+          'lines': {'type': 'integer', 'description': '行数，默认 200'},
+          'clear': {'type': 'boolean', 'description': '是否先清空日志，默认 false'},
         },
-        'required': ['x', 'y'],
       },
-      handler: toolTapScreen,
-    ),
-    McpToolDefinition(
-      name: 'swipe_screen',
-      description: '模拟滑动屏幕（起点 x1,y1 到终点 x2,y2）。',
-      inputSchema: {
-        'type': 'object',
-        'properties': {
-          'x1': {'type': 'integer', 'description': '起点 X'},
-          'y1': {'type': 'integer', 'description': '起点 Y'},
-          'x2': {'type': 'integer', 'description': '终点 X'},
-          'y2': {'type': 'integer', 'description': '终点 Y'},
-          'durationMs': {'type': 'integer', 'description': '时长毫秒，默认 300'},
-        },
-        'required': ['x1', 'y1', 'x2', 'y2'],
-      },
-      handler: toolSwipeScreen,
-    ),
-    McpToolDefinition(
-      name: 'input_text',
-      description: '模拟键盘输入文本（需焦点在输入框）。',
-      inputSchema: {
-        'type': 'object',
-        'properties': {
-          'text': {'type': 'string', 'description': '要输入的文本'},
-        },
-        'required': ['text'],
-      },
-      handler: toolInputText,
+      handler: toolGetLogcat,
     ),
     McpToolDefinition(
       name: 'get_app_whitelist',
@@ -2206,30 +2201,57 @@ Future<Map<String, dynamic>> toolReplayRequest(Map<String, dynamic> args) async 
 // ---- run_device_shell ----
 Future<Map<String, dynamic>> toolRunDeviceShell(Map<String, dynamic> args) async {
   try {
-    final cmd = args['command'] as String?;
-    if (cmd == null || cmd.isEmpty) return _err('command is required');
-    final result = await DeviceControl.runShell(cmd);
-    return _ok({
-      'exitCode': result['exitCode'],
-      'stdout': (result['stdout'] as String? ?? '').length > 8000
-          ? (result['stdout'] as String).substring(0, 8000)
-          : result['stdout'],
-      'stderr': result['stderr'],
-    });
+    final action = (args['action'] as String? ?? 'shell');
+    switch (action) {
+      case 'launch':
+        final pkg = args['packageName'] as String?;
+        if (pkg == null || pkg.isEmpty) return _err('launch 需要 packageName');
+        final ok = await DeviceControl.launchApp(pkg);
+        return _ok({'action': 'launch', 'launched': ok, 'packageName': pkg});
+      case 'ui_dump':
+        final result = await DeviceControl.dumpUi();
+        final out = (result['stdout'] as String? ?? '').trim();
+        if (out.isEmpty) return _err('ui dump empty (need screen on & uiautomator available)');
+        return _ok({'action': 'ui_dump', 'xml': out.length > 15000 ? out.substring(0, 15000) : out, 'length': out.length});
+      case 'tap':
+        final x = args['x'] as int?;
+        final y = args['y'] as int?;
+        if (x == null || y == null) return _err('tap 需要 x 和 y');
+        final r = await DeviceControl.tap(x, y);
+        return _ok({'action': 'tap', 'exitCode': r['exitCode'], 'x': x, 'y': y});
+      case 'swipe':
+        final x1 = args['x1'] as int?;
+        final y1 = args['y1'] as int?;
+        final x2 = args['x2'] as int?;
+        final y2 = args['y2'] as int?;
+        if (x1 == null || y1 == null || x2 == null || y2 == null) {
+          return _err('swipe 需要 x1 y1 x2 y2');
+        }
+        final dur = args['durationMs'] as int? ?? 300;
+        final sr = await DeviceControl.swipe(x1, y1, x2, y2, durationMs: dur);
+        return _ok({'action': 'swipe', 'exitCode': sr['exitCode']});
+      case 'input':
+        final text = args['text'] as String?;
+        if (text == null || text.isEmpty) return _err('input 需要 text');
+        final ir = await DeviceControl.inputText(text);
+        return _ok({'action': 'input', 'exitCode': ir['exitCode'], 'text': text});
+      case 'shell':
+      default:
+        final cmd = args['command'] as String?;
+        if (cmd == null || cmd.isEmpty) return _err('shell 需要 command');
+        final useSu = args['use_su'] as bool? ?? true;
+        final result = await DeviceControl.runShell(cmd, useSu: useSu);
+        return _ok({
+          'action': 'shell',
+          'exitCode': result['exitCode'],
+          'stdout': (result['stdout'] as String? ?? '').length > 8000
+              ? (result['stdout'] as String).substring(0, 8000)
+              : result['stdout'],
+          'stderr': result['stderr'],
+        });
+    }
   } catch (e) {
-    return _err('run shell failed: ${e.toString()}');
-  }
-}
-
-// ---- launch_app ----
-Future<Map<String, dynamic>> toolLaunchApp(Map<String, dynamic> args) async {
-  try {
-    final pkg = args['packageName'] as String?;
-    if (pkg == null || pkg.isEmpty) return _err('packageName is required');
-    final ok = await DeviceControl.launchApp(pkg);
-    return _ok({'launched': ok, 'packageName': pkg});
-  } catch (e) {
-    return _err('launch app failed: ${e.toString()}');
+    return _err('run device shell failed: ${e.toString()}');
   }
 }
 
@@ -2250,57 +2272,69 @@ Future<Map<String, dynamic>> toolTakeScreenshot(Map<String, dynamic> args) async
   }
 }
 
-// ---- get_ui_elements ----
-Future<Map<String, dynamic>> toolGetUiElements(Map<String, dynamic> args) async {
+// ---- sqlite_query ----
+Future<Map<String, dynamic>> toolSqliteQuery(Map<String, dynamic> args) async {
   try {
-    final result = await DeviceControl.dumpUi();
-    final out = (result['stdout'] as String? ?? '').trim();
-    if (out.isEmpty) return _err('ui dump empty (need screen on & uiautomator available)');
-    return _ok({'xml': out.length > 15000 ? out.substring(0, 15000) : out, 'length': out.length});
+    final dbPath = args['dbPath'] as String?;
+    final query = args['query'] as String?;
+    if (dbPath == null || dbPath.isEmpty) return _err('dbPath is required');
+    if (query == null || query.isEmpty) return _err('query is required');
+    final r = await DeviceControl.sqliteQuery(dbPath, query);
+    return _ok({
+      'exitCode': r['exitCode'],
+      'result': (r['stdout'] as String? ?? '').length > 8000
+          ? (r['stdout'] as String).substring(0, 8000)
+          : r['stdout'],
+      'stderr': r['stderr'],
+    });
   } catch (e) {
-    return _err('get ui elements failed: ${e.toString()}');
+    return _err('sqlite query failed: ${e.toString()}');
   }
 }
 
-// ---- tap_screen ----
-Future<Map<String, dynamic>> toolTapScreen(Map<String, dynamic> args) async {
+// ---- read_private_file ----
+Future<Map<String, dynamic>> toolReadPrivateFile(Map<String, dynamic> args) async {
   try {
-    final x = args['x'] as int?;
-    final y = args['y'] as int?;
-    if (x == null || y == null) return _err('x and y are required');
-    final r = await DeviceControl.tap(x, y);
-    return _ok({'exitCode': r['exitCode'], 'x': x, 'y': y});
+    final path = args['path'] as String?;
+    if (path == null || path.isEmpty) return _err('path is required');
+    final r = await DeviceControl.readFile(path);
+    final out = r['stdout'] as String? ?? '';
+    return _ok({
+      'exitCode': r['exitCode'],
+      'content': out.length > 15000 ? out.substring(0, 15000) : out,
+      'length': out.length,
+      'stderr': r['stderr'],
+    });
   } catch (e) {
-    return _err('tap failed: ${e.toString()}');
+    return _err('read file failed: ${e.toString()}');
   }
 }
 
-// ---- swipe_screen ----
-Future<Map<String, dynamic>> toolSwipeScreen(Map<String, dynamic> args) async {
+// ---- get_foreground_activity ----
+Future<Map<String, dynamic>> toolGetForegroundActivity(Map<String, dynamic> args) async {
   try {
-    final x1 = args['x1'] as int?;
-    final y1 = args['y1'] as int?;
-    final x2 = args['x2'] as int?;
-    final y2 = args['y2'] as int?;
-    if (x1 == null || y1 == null || x2 == null || y2 == null) {
-      return _err('x1 y1 x2 y2 are required');
-    }
-    final dur = args['durationMs'] as int? ?? 300;
-    final r = await DeviceControl.swipe(x1, y1, x2, y2, durationMs: dur);
-    return _ok({'exitCode': r['exitCode']});
+    final r = await DeviceControl.getForegroundActivity();
+    return _ok({'output': r['stdout']});
   } catch (e) {
-    return _err('swipe failed: ${e.toString()}');
+    return _err('get foreground activity failed: ${e.toString()}');
   }
 }
 
-// ---- input_text ----
-Future<Map<String, dynamic>> toolInputText(Map<String, dynamic> args) async {
+// ---- get_logcat ----
+Future<Map<String, dynamic>> toolGetLogcat(Map<String, dynamic> args) async {
   try {
-    final text = args['text'] as String?;
-    if (text == null || text.isEmpty) return _err('text is required');
-    final r = await DeviceControl.inputText(text);
-    return _ok({'exitCode': r['exitCode'], 'text': text});
+    final pkg = args['package'] as String? ?? '';
+    final lines = _toInt(args, 'lines', 200);
+    final clear = args['clear'] as bool? ?? false;
+    final r = await DeviceControl.logcat(package: pkg, lines: lines, clear: clear);
+    return _ok({
+      'exitCode': r['exitCode'],
+      'log': (r['stdout'] as String? ?? '').length > 20000
+          ? (r['stdout'] as String).substring(0, 20000)
+          : r['stdout'],
+      'stderr': r['stderr'],
+    });
   } catch (e) {
-    return _err('input text failed: ${e.toString()}');
+    return _err('logcat failed: ${e.toString()}');
   }
 }

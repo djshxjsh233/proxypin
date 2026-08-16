@@ -29,8 +29,35 @@ class DeviceControlPlugin : AndroidFlutterPlugin() {
                 when (call.method) {
                     "runShell" -> {
                         val cmd = call.argument<String>("command") ?: ""
+                        val useSu = call.argument<Boolean>("use_su") ?: true
                         Thread {
-                            result.success(runShell(cmd))
+                            result.success(runShell(cmd, useSu))
+                        }.start()
+                    }
+                    "sqliteQuery" -> {
+                        val dbPath = call.argument<String>("dbPath") ?: ""
+                        val query = call.argument<String>("query") ?: ""
+                        Thread {
+                            result.success(sqliteQuery(dbPath, query))
+                        }.start()
+                    }
+                    "readFile" -> {
+                        val path = call.argument<String>("path") ?: ""
+                        Thread {
+                            result.success(readFile(path))
+                        }.start()
+                    }
+                    "getForegroundActivity" -> {
+                        Thread {
+                            result.success(runShell("dumpsys activity activities | grep -E 'mResumedActivity|topResumedActivity' | head -3", true))
+                        }.start()
+                    }
+                    "logcat" -> {
+                        val pkg = call.argument<String>("package") ?: ""
+                        val lines = call.argument<Int>("lines") ?: 200
+                        val clear = call.argument<Boolean>("clear") ?: false
+                        Thread {
+                            result.success(logcat(pkg, lines, clear))
                         }.start()
                     }
                     "launchApp" -> {
@@ -78,33 +105,60 @@ class DeviceControlPlugin : AndroidFlutterPlugin() {
         }
     }
 
-    /** 执行 shell 命令(优先 su, 回退普通 sh) */
-    private fun runShell(command: String): Map<String, Any?> {
+    /** 执行 shell 命令(默认优先 su root, useSu=false 时用 sh) */
+    private fun runShell(command: String, useSu: Boolean = true): Map<String, Any?> {
+        // 尝试 su; 失败回退 sh
+        if (useSu) {
+            try {
+                val p = Runtime.getRuntime().exec(arrayOf("su", "-c", command))
+                val output = p.inputStream.bufferedReader().readText()
+                val err = p.errorStream.bufferedReader().readText()
+                val code = p.waitFor()
+                // su 进程存在但命令失败时也返回, 让上层决定是否回退
+                return mapOf(
+                    "exitCode" to code,
+                    "stdout" to output,
+                    "stderr" to err,
+                    "usedSu" to true
+                )
+            } catch (e: Exception) {
+                // su 不可用, 落到 sh
+            }
+        }
         return try {
-            val p = Runtime.getRuntime().exec(arrayOf("su", "-c", command))
+            val p = Runtime.getRuntime().exec(arrayOf("sh", "-c", command))
             val output = p.inputStream.bufferedReader().readText()
             val err = p.errorStream.bufferedReader().readText()
             val code = p.waitFor()
-            mapOf(
-                "exitCode" to code,
-                "stdout" to output,
-                "stderr" to err
-            )
-        } catch (e: Exception) {
-            // su 不可用时回退
-            try {
-                val p = Runtime.getRuntime().exec(arrayOf("sh", "-c", command))
-                val output = p.inputStream.bufferedReader().readText()
-                val code = p.waitFor()
-                mapOf(
-                    "exitCode" to code,
-                    "stdout" to output,
-                    "stderr" to ""
-                )
-            } catch (e2: Exception) {
-                mapOf("exitCode" to -1, "stdout" to "", "stderr" to e2.message ?: "")
-            }
+            mapOf("exitCode" to code, "stdout" to output, "stderr" to err, "usedSu" to false)
+        } catch (e2: Exception) {
+            mapOf("exitCode" to -1, "stdout" to "", "stderr" to (e2.message ?: ""), "usedSu" to false)
         }
+    }
+
+    /** 查询私有 sqlite 数据库(root 必须) */
+    private fun sqliteQuery(dbPath: String, query: String): Map<String, Any?> {
+        // 找设备上的 sqlite3(常见路径)
+        val sqlite3 = arrayOf(
+            "/system/bin/sqlite3", "/system/xbin/sqlite3",
+            "/data/adb/modules/sqlite3/sqlite3", "/data/data/com.termux/files/usr/bin/sqlite3"
+        ).firstOrNull { File(it).exists() } ?: "sqlite3"
+        val cmd = "$sqlite3 \"$dbPath\" \"$query\""
+        return runShell(cmd, useSu = true)
+    }
+
+    /** 读取文件内容(root 读 /data/data 私有文件) */
+    private fun readFile(path: String): Map<String, Any?> {
+        val r = runShell("cat \"$path\"", useSu = true)
+        return r
+    }
+
+    /** logcat 抓日志 */
+    private fun logcat(pkg: String, lines: Int, clear: Boolean): Map<String, Any?> {
+        val clearCmd = if (clear) "logcat -c; " else ""
+        val filter = if (pkg.isNotEmpty()) " | grep -i \"$pkg\"" else ""
+        val cmd = "${clearCmd}logcat -d -t $lines$filter"
+        return runShell(cmd, useSu = false)
     }
 
     private fun launchApp(packageName: String): Boolean {

@@ -4,9 +4,29 @@ import 'package:flutter/services.dart';
 class DeviceControl {
   static const MethodChannel _channel = MethodChannel('com.proxy/deviceControl');
 
-  /// 执行 shell 命令 (优先 su, 回退 sh)
-  static Future<Map<dynamic, dynamic>> runShell(String command) async {
-    return await _channel.invokeMethod('runShell', {'command': command});
+  /// 执行 shell 命令 (默认 su root)
+  static Future<Map<dynamic, dynamic>> runShell(String command, {bool useSu = true}) async {
+    return await _channel.invokeMethod('runShell', {'command': command, 'use_su': useSu});
+  }
+
+  /// 查询私有 sqlite 数据库 (root)
+  static Future<Map<dynamic, dynamic>> sqliteQuery(String dbPath, String query) async {
+    return await _channel.invokeMethod('sqliteQuery', {'dbPath': dbPath, 'query': query});
+  }
+
+  /// 读取私有文件 (root)
+  static Future<Map<dynamic, dynamic>> readFile(String path) async {
+    return await _channel.invokeMethod('readFile', {'path': path});
+  }
+
+  /// 当前前台 Activity
+  static Future<Map<dynamic, dynamic>> getForegroundActivity() async {
+    return await _channel.invokeMethod('getForegroundActivity');
+  }
+
+  /// logcat 抓日志
+  static Future<Map<dynamic, dynamic>> logcat({String package = '', int lines = 200, bool clear = false}) async {
+    return await _channel.invokeMethod('logcat', {'package': package, 'lines': lines, 'clear': clear});
   }
 
   /// 启动 App
