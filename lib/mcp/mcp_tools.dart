@@ -301,6 +301,18 @@ Future<List<McpToolDefinition>> buildMcpTools() async {
       },
       handler: toolEncryptBody,
     ),
+    McpToolDefinition(
+      name: 'detect_body_encoding',
+      description: '自动检测一段 body 的编码/格式：base64、hex、JSON、gzip、URL编码、普通文本，并给出疑似 AES 密文特征（解码后长度是否 16 对齐等）。分析加密响应体/签名参数时先跑这个确定格式。',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'body': {'type': 'string', 'description': '要检测的内容（base64/hex/文本均可）'},
+        },
+        'required': ['body'],
+      },
+      handler: toolDetectBodyEncoding,
+    ),
 
     // ---------------- 代理状态 ----------------
     McpToolDefinition(
@@ -1716,5 +1728,84 @@ Future<Map<String, dynamic>> toolEncryptBody(Map<String, dynamic> args) async {
     });
   } catch (e) {
     return _err('encrypt failed: ${e.toString()}');
+  }
+}
+
+// ---- detect_body_encoding ----
+Future<Map<String, dynamic>> toolDetectBodyEncoding(Map<String, dynamic> args) async {
+  try {
+    final body = args['body'] as String?;
+    if (body == null || body.isEmpty) return _err('body is required');
+    final s = body.trim();
+
+    final result = <String, dynamic>{'inputLength': s.length};
+
+    // 1. gzip 魔数 (输入可能是原始字节的 base64 或文本里的转义)
+    // 2. JSON 检测 (对原始文本)
+    String? jsonPreview;
+    var isJson = false;
+    try {
+      final decoded = jsonDecode(s);
+      isJson = true;
+      jsonPreview = jsonEncode(decoded);
+    } catch (_) {}
+
+    // 3. hex 检测: 偶数长度 + 全部 hex 字符
+    final isHex = s.length % 2 == 0 && s.length >= 2 && RegExp(r'^[0-9a-fA-F]+$').hasMatch(s);
+
+    // 4. base64 检测: 合法字符集 + 可解码
+    Uint8List? b64Bytes;
+    var isBase64 = false;
+    if (RegExp(r'^[A-Za-z0-9+/]+={0,2}$').hasMatch(s) && s.length % 4 == 0 && s.length >= 4) {
+      try {
+        b64Bytes = base64.decode(s);
+        isBase64 = true;
+      } catch (_) {}
+    }
+
+    // 5. URL 编码检测
+    final isUrlEncoded = s.contains('%') && RegExp(r'%[0-9a-fA-F]{2}').hasMatch(s);
+
+    // 6. 疑似 AES 密文: base64 解码后长度 16 对齐且非纯文本
+    Uint8List? candidateBytes;
+    if (isBase64 && b64Bytes != null) {
+      candidateBytes = b64Bytes;
+    } else if (isHex) {
+      candidateBytes = Uint8List.fromList(List.generate(s.length ~/ 2, (i) => int.parse(s.substring(i * 2, i * 2 + 2), radix: 16)));
+    }
+    if (candidateBytes != null) {
+      final len = candidateBytes.length;
+      var looksEncrypted = len > 0 && len % 16 == 0;
+      // 若解码后是纯 utf8 文本, 不太像密文
+      if (looksEncrypted) {
+        try {
+          utf8.decode(candidateBytes);
+          looksEncrypted = false; // 可解码为文本, 更像普通内容
+        } catch (_) {}
+      }
+      result['decodedLength'] = len;
+      result['blockAligned16'] = len % 16 == 0;
+      result['looksLikeAesCipher'] = looksEncrypted;
+      result['decodedHeadHex'] = candidateBytes.take(8).map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+    }
+
+    // 汇总判定
+    final formats = <String>[];
+    if (isJson) formats.add('json');
+    if (isBase64) formats.add('base64');
+    if (isHex) formats.add('hex');
+    if (isUrlEncoded) formats.add('urlencoded');
+    result['detected'] = formats;
+    result['isJson'] = isJson;
+    result['jsonPreview'] = jsonPreview != null && jsonPreview.length > 500 ? jsonPreview.substring(0, 500) : jsonPreview;
+    result['isBase64'] = isBase64;
+    result['isHex'] = isHex;
+    result['isUrlEncoded'] = isUrlEncoded;
+    result['isGzipMagic'] = (b64Bytes != null && b64Bytes.length >= 2 && b64Bytes[0] == 0x1f && b64Bytes[1] == 0x8b) ||
+        (s.length >= 2 && s.codeUnitAt(0) == 0x1f && s.codeUnitAt(1) == 0x8b);
+
+    return _ok(result);
+  } catch (e) {
+    return _err('detect failed: ${e.toString()}');
   }
 }
