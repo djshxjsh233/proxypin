@@ -52,8 +52,9 @@ class DeviceControlPlugin : AndroidFlutterPlugin() {
                     }
                     "readFileChunk" -> {
                         val path = call.argument<String>("path") ?: ""
-                        val offset = call.argument<Long>("offset") ?: 0L
-                        val chunkSize = call.argument<Long>("chunkSize") ?: 4000L
+                        // Dart int 可能映射为 Integer, 用 Number 兼容
+                        val offset = (call.argument<Number>("offset") ?: 0L).toLong()
+                        val chunkSize = (call.argument<Number>("chunkSize") ?: 65536L).toLong()
                         Thread {
                             val r: Map<String, Any?> = readFileChunk(path, offset, chunkSize)
                             result.success(r)
