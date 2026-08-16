@@ -122,7 +122,6 @@ class Har {
         "content": {
           "size": request.response?.body?.length ?? -1,
           "mimeType": _getContentType(request.response?.headers.contentType),
-          "encoding": "base64",
           "text": _getResponseText(request.response),
         },
         "redirectURL": '',
@@ -207,20 +206,7 @@ class Har {
     var httpRequest = HttpRequest(HttpMethod.valueOf(method), request['url'], protocolVersion: request['httpVersion']);
     if (har.containsKey("_id")) httpRequest.requestId = har['_id'].toString(); // 页面标识
     httpRequest.processInfo = har['_app'] == null ? null : ProcessInfo.fromJson(har['_app']);
-    // 请求体: encoding=base64 时按 base64 还原原始字节(兼容旧格式的直接 codeUnits)
-    final postData = request['postData'];
-    final postText = postData?['text']?.toString();
-    if (postText != null && postText.isNotEmpty) {
-      if (postData?['encoding'] == 'base64') {
-        try {
-          httpRequest.body = base64Decode(postText);
-        } catch (_) {
-          httpRequest.body = postText.codeUnits;
-        }
-      } else {
-        httpRequest.body = postText.codeUnits;
-      }
-    }
+    httpRequest.body = request['postData']?['text']?.toString().codeUnits;
     for (var element in headers) {
       httpRequest.headers.add(element['name'], element['value']);
     }
@@ -235,23 +221,14 @@ class Har {
       }
 
       var responseText = response['content']?['text'];
-      var responseEncoding = response['content']?['encoding'];
       if (responseText != null) {
-        if (responseEncoding == 'base64') {
-          // 新格式: base64 存原始字节, 无损还原(中文/二进制都不会乱码)
-          try {
-            httpResponse.body = base64Decode(responseText);
-          } catch (e) {
-            httpResponse.body = responseText.toString().codeUnits;
-          }
-        } else if (httpResponse.contentType.isBinary) {
+        if (httpResponse.contentType.isBinary) {
           try {
             httpResponse.body = base64Decode(responseText);
           } catch (e) {
             httpResponse.body = responseText.toString().codeUnits;
           }
         } else {
-          // 旧格式兼容: 文本直存, codeUnits 还原
           httpResponse.body = responseText.toString().codeUnits;
         }
       }
@@ -288,15 +265,13 @@ class Har {
     if (request.contentType == ContentType.formData || request.contentType == ContentType.formUrl) {
       return {
         "mimeType": request.headers.contentType, // 请求体类型
-        if (request.body != null) "text": base64Encode(request.body!), // 请求体内容(base64,避免中文乱码)
-        "encoding": "base64",
+        if (request.body != null) "text": String.fromCharCodes(request.body!), // 请求体内容
         "params": [], // 请求体内容
       };
     }
     return {
       "mimeType": request.headers.contentType, // 请求体类型
-      if (request.body != null) "text": base64Encode(request.body!), // 请求体内容
-      "encoding": "base64",
+      if (request.body != null) "text": String.fromCharCodes(request.body!), // 请求体内容
     };
   }
 
@@ -305,9 +280,11 @@ class Har {
     if (responseBody == null) {
       return '';
     }
-    // 统一以 base64 保存原始字节(HAR encoding=base64),避免 String(UTF-16) 中间层破坏
-    // utf-8 多字节内容导致历史记录中文乱码。
-    return base64Encode(responseBody);
+    if (response?.contentType.isBinary == true) {
+      return base64Encode(responseBody);
+    }
+
+    return response?.bodyAsString ?? '';
   }
 
   //获取contentType
