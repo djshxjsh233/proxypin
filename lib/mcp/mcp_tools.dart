@@ -20,6 +20,8 @@ import 'package:proxypin/utils/crypto_body_decoder.dart';
 import 'package:proxypin/network/components/manager/script_manager.dart';
 import 'package:proxypin/network/components/request_breakpoint.dart';
 import 'package:proxypin/network/http/http.dart';
+import 'package:proxypin/network/http/http_client.dart';
+import 'package:proxypin/network/channel/host_port.dart';
 import 'package:proxypin/storage/histories.dart';
 import 'package:proxypin/storage/path.dart';
 import 'package:proxypin/ui/mobile/mobile.dart';
@@ -325,6 +327,22 @@ Future<List<McpToolDefinition>> buildMcpTools() async {
         'required': ['value'],
       },
       handler: toolAnalyzeSignature,
+    ),
+    McpToolDefinition(
+      name: 'replay_request',
+      description: '重放一个已抓包的请求（官方 proxyRequest 链路，走本地代理）。可覆盖 method/uri/headers/body 后重发，用于验证签名算法/改参测试。url 必填；未提供其他字段时按 url 发 GET。返回响应状态码、耗时、响应头与响应体(前2000字符)。',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'url': {'type': 'string', 'description': '请求完整 URL'},
+          'method': {'type': 'string', 'description': 'GET/POST/PUT/DELETE 等，默认 GET'},
+          'headers': {'type': 'object', 'description': '可选：请求头（map，值转字符串）'},
+          'body': {'type': 'string', 'description': '可选：请求体（POST/PUT 时）'},
+          'timeoutSeconds': {'type': 'integer', 'description': '超时秒数，默认 15'},
+        },
+        'required': ['url'],
+      },
+      handler: toolReplayRequest,
     ),
 
     // ---------------- 代理状态 ----------------
@@ -2017,5 +2035,65 @@ Future<Map<String, dynamic>> toolAnalyzeSignature(Map<String, dynamic> args) asy
     return _ok(result);
   } catch (e) {
     return _err('analyze signature failed: ${e.toString()}');
+  }
+}
+
+// ---- replay_request ----
+Future<Map<String, dynamic>> toolReplayRequest(Map<String, dynamic> args) async {
+  try {
+    final url = args['url'] as String?;
+    if (url == null || url.isEmpty) return _err('url is required');
+
+    final methodStr = (args['method'] as String? ?? 'GET').toUpperCase();
+    final HttpMethod method;
+    try {
+      method = HttpMethod.values.firstWhere((m) => m.name.toUpperCase() == methodStr);
+    } catch (_) {
+      return _err('unsupported method: $methodStr');
+    }
+
+    // 构造请求
+    final request = HttpRequest(method, url);
+    if (args['headers'] is Map) {
+      (args['headers'] as Map).forEach((k, v) {
+        request.headers.set(k.toString(), v.toString());
+      });
+    }
+    final body = args['body'] as String?;
+    if (body != null && body.isNotEmpty) {
+      request.body = utf8.encode(body);
+      if (request.headers.contentType.isEmpty) {
+        request.headers.contentType = 'application/x-www-form-urlencoded';
+      }
+    }
+
+    // 走本地代理(与 App 重放一致): 代理运行时经 127.0.0.1:port
+    final proxy = ProxyServer.current;
+    final ProxyInfo? proxyInfo =
+        (proxy?.isRunning == true) ? ProxyInfo.of('127.0.0.1', proxy!.port) : null;
+    final timeout = Duration(seconds: _toInt(args, 'timeoutSeconds', 15));
+
+    final sw = Stopwatch()..start();
+    final response = await HttpClients.proxyRequest(request, proxyInfo: proxyInfo, timeout: timeout);
+    sw.stop();
+
+    // 响应体明文(解压后, 前2000字符)
+    String bodyText = '';
+    try {
+      bodyText = response.getBodyString();
+      if (bodyText.length > 2000) bodyText = '${bodyText.substring(0, 2000)}...(共${bodyText.length}字符)';
+    } catch (_) {}
+
+    return _ok({
+      'statusCode': response.status.code,
+      'statusReason': response.status.reasonPhrase,
+      'timeMs': sw.elapsedMilliseconds,
+      'responseHeaders': response.headers.toJson(),
+      'responseBody': bodyText,
+      'responseBodyBase64': _safeBase64(response.body),
+      'contentEncoding': response.headers.contentEncoding,
+    });
+  } catch (e) {
+    return _err('replay request failed: ${e.toString()}');
   }
 }
