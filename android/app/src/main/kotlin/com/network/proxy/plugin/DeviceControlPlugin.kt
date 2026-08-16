@@ -206,9 +206,14 @@ class DeviceControlPlugin : AndroidFlutterPlugin() {
         return runShell(cmd, useSu = true)
     }
 
+    /** 路径转换: /data/... → /proc/1/root/data/... (绕过 KernelSU su 域隐藏, 看全 /data/data 403个目录) */
+    private fun fixPath(path: String): String {
+        return if (path.startsWith("/data/")) "/proc/1/root$path" else path
+    }
+
     /** 读取文件内容(root 读 /data/data 私有文件) */
     private fun readFile(path: String): Map<String, Any?> {
-        val r = runShell("cat \"$path\"", useSu = true)
+        val r = runShell("cat \"${fixPath(path)}\"", useSu = true)
         return r
     }
 
@@ -216,36 +221,36 @@ class DeviceControlPlugin : AndroidFlutterPlugin() {
     private fun readFileChunk(path: String, offset: Long, chunkSize: Long): Map<String, Any?> {
         // dd 按偏移读指定字节, base64 编码输出
         return runShell(
-            "dd if=\"$path\" bs=1 skip=$offset count=$chunkSize 2>/dev/null | base64 -w 0",
+            "dd if=\"${fixPath(path)}\" bs=1 skip=$offset count=$chunkSize 2>/dev/null | base64 -w 0",
             useSu = true
         )
     }
 
     /** 列出目录内容(root 可看 /data) */
     private fun listDir(path: String): Map<String, Any?> {
-        return runShell("ls -la \"$path\"", useSu = true)
+        return runShell("ls -la \"${fixPath(path)}\"", useSu = true)
     }
 
     /** 写文件(root, 可写 /data) */
     private fun writeFile(path: String, content: String): Map<String, Any?> {
         // 用 base64 传输避免转义问题
         val b64 = Base64.encodeToString(content.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
-        return runShell("echo \"$b64\" | base64 -d > \"$path\"", useSu = true)
+        return runShell("echo \"$b64\" | base64 -d > \"${fixPath(path)}\"", useSu = true)
     }
 
     /** 复制文件(跨目录, root) */
     private fun copyFile(src: String, dst: String): Map<String, Any?> {
-        return runShell("cp -rf \"$src\" \"$dst\" && chmod -R 777 \"$dst\" 2>/dev/null; echo COPY_OK", useSu = true)
+        return runShell("cp -rf \"${fixPath(src)}\" \"${fixPath(dst)}\" && chmod -R 777 \"${fixPath(dst)}\" 2>/dev/null; echo COPY_OK", useSu = true)
     }
 
     /** 移动文件(跨目录, root) */
     private fun moveFile(src: String, dst: String): Map<String, Any?> {
-        return runShell("mv -f \"$src\" \"$dst\" 2>/dev/null || (cp -rf \"$src\" \"$dst\" && rm -rf \"$src\"); echo MOVE_OK", useSu = true)
+        return runShell("mv -f \"${fixPath(src)}\" \"${fixPath(dst)}\" 2>/dev/null || (cp -rf \"${fixPath(src)}\" \"${fixPath(dst)}\" && rm -rf \"${fixPath(src)}\"); echo MOVE_OK", useSu = true)
     }
 
     /** 删除文件/目录(root) */
     private fun deleteFile(path: String): Map<String, Any?> {
-        return runShell("rm -rf \"$path\" && echo DELETE_OK", useSu = true)
+        return runShell("rm -rf \"${fixPath(path)}\" && echo DELETE_OK", useSu = true)
     }
 
     /** logcat 抓日志 */
