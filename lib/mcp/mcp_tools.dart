@@ -1867,6 +1867,65 @@ Future<Map<String, dynamic>> toolDetectBodyEncoding(Map<String, dynamic> args) a
 }
 
 // ---- analyze_signature ----
+/// 分析单段签名(如 xfalcon 的 HUDR_xxx 或 TE_xxx), 返回摘要或 null
+Map<String, dynamic>? _analyzeSigSegment(String raw) {
+  var s = raw.trim();
+  if (s.isEmpty) return null;
+  final res = <String, dynamic>{'segment': s.length > 60 ? '${s.substring(0, 60)}...' : s, 'len': s.length};
+
+  // 剥离前缀 XXX_
+  final pm = RegExp(r'^([A-Za-z0-9]{2,10})_([A-Za-z0-9+/=]+)$').firstMatch(s);
+  if (pm != null) {
+    final prefix = pm.group(1)!;
+    final rest = pm.group(2)!;
+    final restIsHex = RegExp(r'^[0-9a-fA-F]+$').hasMatch(rest) && rest.length % 2 == 0;
+    final restIsB64 = RegExp(r'^[A-Za-z0-9+/]+={0,2}$').hasMatch(rest) && rest.length % 4 == 0;
+    if (restIsHex || restIsB64) {
+      res['prefix'] = prefix;
+      s = rest;
+      res['strippedLen'] = s.length;
+    }
+  }
+
+  // hex 识别
+  if (RegExp(r'^[0-9a-fA-F]+$').hasMatch(s) && s.length % 2 == 0) {
+    res['format'] = 'hex';
+    final n = s.length;
+    final cand = <String>[];
+    if (n == 32) cand.add('MD5 / HmacMD5');
+    if (n == 40) cand.add('SHA1 / HmacSHA1');
+    if (n == 48) cand.add('24字节 → AES-192 密文 / MD5+SHA1 拼接');
+    if (n == 56) cand.add('SHA224 / HmacSHA224');
+    if (n == 64) cand.add('SHA256 / HmacSHA256');
+    if (n == 96) cand.add('SHA384 / HmacSHA384');
+    if (n == 128) cand.add('SHA512 / HmacSHA512 / AES-256 密文');
+    if (n % 32 == 0 && n >= 64) cand.add('多个哈希拼接 或 AES 密文(${n ~/ 2}字节, ${n ~/ 32}块)');
+    if (cand.isEmpty) cand.add('${n ~/ 2}字节hex, 非标准哈希长度 → 加密数据(如AES-CBC含IV)/自定义编码');
+    res['possibleAlgorithms'] = cand;
+    return res;
+  }
+
+  // base64 识别
+  if (RegExp(r'^[A-Za-z0-9+/]+={0,2}$').hasMatch(s) && s.length % 4 == 0 && s.length >= 4) {
+    res['format'] = 'base64';
+    try {
+      final bytes = base64.decode(s);
+      res['decodedLen'] = bytes.length;
+      if (bytes.length == 16) res['hint'] = '16字节 → AES-128密文块 / 原始MD5摘要';
+      if (bytes.length == 32) res['hint'] = '32字节 → AES-256密文块 / SHA256原始摘要';
+      if (bytes.length % 16 != 0) res['hint'] = '非16对齐(${bytes.length}字节), 可能非AES密文';
+      try {
+        final t = utf8.decode(bytes);
+        res['textPreview'] = t.length > 60 ? t.substring(0, 60) : t;
+      } catch (_) {}
+    } catch (_) {}
+    return res;
+  }
+
+  res['format'] = 'unknown';
+  return res;
+}
+
 Future<Map<String, dynamic>> toolAnalyzeSignature(Map<String, dynamic> args) async {
   try {
     final value = args['value'] as String?;
@@ -1879,6 +1938,19 @@ Future<Map<String, dynamic>> toolAnalyzeSignature(Map<String, dynamic> args) asy
     };
 
     // 0. 常见前缀剥离: HUDR_ / TE_ / sig_ / ts_ 等 (快手 xfalcon 等签名带标识前缀)
+    //    以及 '$' 分段结构 (如 HUDR_<base64>$TE_<hex>)
+    if (s.contains(r'$')) {
+      final segs = s.split(r'$');
+      final segResults = <Map<String, dynamic>>[];
+      for (final seg in segs) {
+        final segRes = _analyzeSigSegment(seg);
+        if (segRes != null) segResults.add(segRes);
+      }
+      if (segResults.isNotEmpty) {
+        result['segments'] = segResults;
+        return _ok(result);
+      }
+    }
     final prefixMatch = RegExp(r'^([A-Za-z0-9]{2,10})_([A-Za-z0-9+/=]+)$').firstMatch(s);
     if (prefixMatch != null) {
       final prefix = prefixMatch.group(1)!;
