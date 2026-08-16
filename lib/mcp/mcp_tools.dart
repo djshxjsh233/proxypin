@@ -2470,8 +2470,11 @@ Future<Map<String, dynamic>> toolPullFile(Map<String, dynamic> args) async {
     final totalSize = int.tryParse((szR['stdout'] as String? ?? '0').trim()) ?? 0;
 
     final r = await DeviceControl.readFileChunk(path, offset, chunkSize);
-    final b64 = (r['stdout'] as String? ?? '').trim();
-    final bytesRead = b64.isEmpty ? 0 : (b64.length * 3) ~/ 4; // base64 → 字节估算
+    final b64raw = (r['stdout'] as String? ?? '').trim();
+    // 去掉 base64 padding(=), 避免多块拼接时中间出现 === 导致本地 b64decode 提前截断
+    final b64 = b64raw.replaceAll('=', '');
+    // 精确字节数: (字符数 * 3) ~/ 4 (无 padding 时每4字符=3字节, 不足4字符按3/4算)
+    final bytesRead = b64.isEmpty ? 0 : (b64.length * 3) ~/ 4;
     final nextOffset = offset + bytesRead;
     final hasMore = nextOffset < totalSize;
 
@@ -2479,7 +2482,7 @@ Future<Map<String, dynamic>> toolPullFile(Map<String, dynamic> args) async {
       'path': path,
       'offset': offset,
       'chunkSize': chunkSize,
-      'data': b64, // base64 片段
+      'data': b64, // base64 片段(已去 padding, 可直接拼接)
       'bytesRead': bytesRead,
       'total': totalSize,
       'hasMore': hasMore,
