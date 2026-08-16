@@ -256,19 +256,8 @@ class DeviceControlPlugin : AndroidFlutterPlugin() {
     }
 
     private fun launchApp(packageName: String): Boolean {
-        // 方式1: getLaunchIntentForPackage(可能被系统拦截, 央视频实测失效)
-        try {
-            val pm = activity.packageManager
-            val intent = pm.getLaunchIntentForPackage(packageName)
-            if (intent != null) {
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                activity.startActivity(intent)
-                return true
-            }
-        } catch (e: Exception) {
-            // fall through
-        }
-        // 方式2: 兜底 - cmd package resolve-activity 查真实入口 → am start -n
+        // 主路径: cmd package resolve-activity 查真实入口 → am start -n
+        // (getLaunchIntentForPackage 在部分 App(央视频) 上 intent 无效/不切前台, 弃用)
         try {
             val resolve = runShell(
                 "cmd package resolve-activity --brief -c android.intent.category.LAUNCHER \"$packageName\" 2>/dev/null | tail -1",
@@ -276,10 +265,22 @@ class DeviceControlPlugin : AndroidFlutterPlugin() {
             )
             val entry = (resolve["stdout"] as String? ?: "").trim()
             if (entry.isNotEmpty() && entry.contains("/")) {
-                val start = runShell("am start -n \"$entry\" 2>&1", useSu = false)
+                // 用完整 PATH + 全路径 am, 避免 Kotlin sh 环境 PATH 不全
+                val start = runShell("export PATH=/system/bin:/system/xbin:/sbin:\\$PATH; am start -n \"$entry\" 2>&1", useSu = false)
                 val out = start["stdout"] as String? ?: ""
-                // am start 输出含 Starting: 即成功
                 return out.contains("Starting:") || out.contains("Warning")
+            }
+        } catch (e: Exception) {
+            // ignore
+        }
+        // 兜底: getLaunchIntentForPackage
+        try {
+            val pm = activity.packageManager
+            val intent = pm.getLaunchIntentForPackage(packageName)
+            if (intent != null) {
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                activity.startActivity(intent)
+                return true
             }
         } catch (e: Exception) {
             // ignore
