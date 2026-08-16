@@ -261,13 +261,13 @@ class DeviceControlPlugin : AndroidFlutterPlugin() {
         // (getLaunchIntentForPackage 在部分 App(央视频) 上 intent 无效/不切前台, 弃用)
         try {
             val resolve = runShell(
-                "cmd package resolve-activity --brief -c android.intent.category.LAUNCHER \"$packageName\" 2>/dev/null | tail -1",
+                "/system/bin/cmd package resolve-activity --brief -c android.intent.category.LAUNCHER \"$packageName\" 2>/dev/null | tail -1",
                 useSu = true
             )
             val entry = (resolve["stdout"] as String? ?: "").trim()
             if (entry.isNotEmpty() && entry.contains("/")) {
-                // 用完整 PATH + 全路径 am, 避免 Kotlin sh 环境 PATH 不全
-                val start = runShell("export PATH=/system/bin:/system/xbin:/sbin:\\$PATH; am start -n \"$entry\" 2>&1", useSu = false)
+                // 用全路径 am, 避免 Kotlin sh 环境 PATH 不全(不依赖 \$PATH 插值)
+                val start = runShell("/system/bin/am start -n \"$entry\" 2>&1", useSu = false)
                 val out = start["stdout"] as String? ?: ""
                 return out.contains("Starting:") || out.contains("Warning")
             }
