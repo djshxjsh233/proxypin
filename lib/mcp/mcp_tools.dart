@@ -1871,12 +1871,27 @@ Future<Map<String, dynamic>> toolAnalyzeSignature(Map<String, dynamic> args) asy
   try {
     final value = args['value'] as String?;
     if (value == null || value.isEmpty) return _err('value is required');
-    final s = value.trim();
+    var s = value.trim();
 
     final result = <String, dynamic>{
       'length': s.length,
       'input': s.length > 100 ? '${s.substring(0, 100)}...' : s,
     };
+
+    // 0. 常见前缀剥离: HUDR_ / TE_ / sig_ / ts_ 等 (快手 xfalcon 等签名带标识前缀)
+    final prefixMatch = RegExp(r'^([A-Za-z0-9]{2,10})_([A-Za-z0-9+/=]+)$').firstMatch(s);
+    if (prefixMatch != null) {
+      final prefix = prefixMatch.group(1)!;
+      final rest = prefixMatch.group(2)!;
+      // 前缀后内容确实是 hex 或 base64 才剥离(避免误伤普通文本)
+      final restIsHex = RegExp(r'^[0-9a-fA-F]+$').hasMatch(rest) && rest.length % 2 == 0;
+      final restIsB64 = RegExp(r'^[A-Za-z0-9+/]+={0,2}$').hasMatch(rest) && rest.length % 4 == 0;
+      if (restIsHex || restIsB64) {
+        result['prefix'] = prefix;
+        s = rest;
+        result['strippedLength'] = s.length;
+      }
+    }
 
     // 1. hex 检测 + 哈希算法识别
     final isHex = RegExp(r'^[0-9a-fA-F]+$').hasMatch(s);
@@ -1892,6 +1907,9 @@ Future<Map<String, dynamic>> toolAnalyzeSignature(Map<String, dynamic> args) asy
       if (n == 96) candidates.add('SHA384 / HmacSHA384');
       if (n == 128) candidates.add('SHA512 / HmacSHA512 / AES-256 密文');
       if (n % 32 == 0 && n >= 64) candidates.add('可能为多个哈希拼接 或 AES 密文(${n ~/ 2}字节, ${n ~/ 32}个块)');
+      if (n % 2 == 0 && candidates.isEmpty && n > 0) {
+        candidates.add('${n ~/ 2}字节hex, 非标准哈希长度, 可能为加密数据(如AES-CBC含IV)/自定义编码/拼接');
+      }
       result['possibleAlgorithms'] = candidates;
     }
 
