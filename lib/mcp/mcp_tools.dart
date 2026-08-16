@@ -497,11 +497,13 @@ Future<List<McpToolDefinition>> buildMcpTools() async {
     ),
     McpToolDefinition(
       name: 'pull_file',
-      description: '分块拉取设备文件到本地（root，可拉 /data/data 私有文件）。自动循环读取直到完整。返回 base64 数据（本地拼接解码）。大文件（db/apk）用这个。',
+      description: '分块拉取设备文件（root）。每次返回一块 base64 数据 + total/hasMore/nextOffset：AI 看到 hasMore=true 就传 offset=nextOffset 拉下一块，循环到 hasMore=false 后本地拼接解码。默认 64KB/块，MCP 返回受限时可传更小 chunkSize。',
       inputSchema: {
         'type': 'object',
         'properties': {
           'path': {'type': 'string', 'description': '设备文件绝对路径'},
+          'offset': {'type': 'integer', 'description': '字节偏移，首次 0，后续用 nextOffset'},
+          'chunkSize': {'type': 'integer', 'description': '每块字节数，默认 65536（64KB）'},
         },
         'required': ['path'],
       },
@@ -2458,23 +2460,31 @@ Future<Map<String, dynamic>> toolPullFile(Map<String, dynamic> args) async {
   try {
     final path = args['path'] as String?;
     if (path == null || path.isEmpty) return _err('path is required');
-    // 单块约 3000 字节(base64 后 ~4000 字符, 避开 MCP 8000 截断)
-    const int chunkSize = 3000;
-    final sb = StringBuffer();
-    int offset = 0;
-    int total = 0;
-    while (true) {
-      final r = await DeviceControl.readFileChunk(path, offset, chunkSize);
-      final out = r['stdout'] as String? ?? '';
-      final b64 = out.trim();
-      if (b64.isEmpty) break; // 读完了
-      sb.write(b64);
-      total += b64.length;
-      offset += chunkSize;
-      if (total > 20000000) return _err('file too large (>20MB base64)');
-    }
-    if (total == 0) return _err('file empty or unreadable: $path');
-    return _ok({'path': path, 'base64': sb.toString(), 'base64Length': total});
+    final offset = _toInt(args, 'offset', 0);
+    // 默认每块 64KB(设备端 dd 读取), base64 后约 87KB —— 受 MCP 返回上限约束时 AI 可传更小 chunk
+    final chunkSize = _toInt(args, 'chunkSize', 65536);
+    if (chunkSize <= 0 || chunkSize > 1048576) return _err('chunkSize must be 1..1048576');
+
+    // 先拿文件总大小(供 total/hasMore 判断)
+    final szR = await DeviceControl.runShell('stat -c %s "$path" 2>/dev/null || echo 0', useSu: true);
+    final totalSize = int.tryParse((szR['stdout'] as String? ?? '0').trim()) ?? 0;
+
+    final r = await DeviceControl.readFileChunk(path, offset, chunkSize);
+    final b64 = (r['stdout'] as String? ?? '').trim();
+    final bytesRead = b64.isEmpty ? 0 : (b64.length * 3) ~/ 4; // base64 → 字节估算
+    final nextOffset = offset + bytesRead;
+    final hasMore = nextOffset < totalSize;
+
+    return _ok({
+      'path': path,
+      'offset': offset,
+      'chunkSize': chunkSize,
+      'data': b64, // base64 片段
+      'bytesRead': bytesRead,
+      'total': totalSize,
+      'hasMore': hasMore,
+      'nextOffset': nextOffset,
+    });
   } catch (e) {
     return _err('pull file failed: ${e.toString()}');
   }
