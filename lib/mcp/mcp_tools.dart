@@ -10,6 +10,8 @@ import 'package:proxypin/network/components/manager/request_block_manager.dart';
 import 'package:proxypin/network/components/manager/request_breakpoint_manager.dart';
 import 'package:proxypin/network/components/manager/request_map_manager.dart';
 import 'package:proxypin/network/components/manager/network_condition_manager.dart';
+import 'package:proxypin/network/components/manager/request_rewrite_manager.dart';
+import 'package:proxypin/network/components/manager/rewrite_rule.dart';
 import 'package:proxypin/network/components/manager/script_manager.dart';
 import 'package:proxypin/network/http/http.dart';
 import 'package:proxypin/storage/histories.dart';
@@ -401,6 +403,48 @@ Future<List<McpToolDefinition>> buildMcpTools() async {
         'required': ['index'],
       },
       handler: toolRemoveScript,
+    ),
+
+    // ---------------- 请求重写 ----------------
+    McpToolDefinition(
+      name: 'list_rewrite_rules',
+      description: '列出当前所有请求重写规则。',
+      inputSchema: {'type': 'object', 'properties': {}},
+      handler: toolListRewriteRules,
+    ),
+    McpToolDefinition(
+      name: 'add_rewrite_rule',
+      description: '新增请求重写规则。ruleType: responseReplace=替换响应体, requestReplace=替换请求体, redirect=重定向, responseUpdate=修改响应, requestUpdate=修改请求。body/statusCode/headers/redirectUrl 按需填。',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'url': {'type': 'string', 'description': '匹配的 URL 模式'},
+          'ruleType': {
+            'type': 'string',
+            'description': '规则类型',
+            'enum': ['responseReplace', 'requestReplace', 'redirect', 'responseUpdate', 'requestUpdate'],
+          },
+          'name': {'type': 'string', 'description': '规则名称（可选）'},
+          'body': {'type': 'string', 'description': '替换的请求/响应体内容'},
+          'statusCode': {'type': 'integer', 'description': '替换响应状态码（responseReplace 时）'},
+          'headers': {'type': 'object', 'description': '替换的响应/请求头（键值对）'},
+          'redirectUrl': {'type': 'string', 'description': '重定向目标 URL（redirect 类型必填）'},
+        },
+        'required': ['url', 'ruleType'],
+      },
+      handler: toolAddRewriteRule,
+    ),
+    McpToolDefinition(
+      name: 'remove_rewrite_rule',
+      description: '删除指定重写规则。index 从 list_rewrite_rules 获取。',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'index': {'type': 'integer', 'description': '规则序号'},
+        },
+        'required': ['index'],
+      },
+      handler: toolRemoveRewriteRule,
     ),
   ];
 }
@@ -1082,5 +1126,98 @@ Future<Map<String, dynamic>> toolRemoveScript(Map<String, dynamic> args) async {
     return _ok('script removed');
   } catch (e) {
     return _err('remove script failed: ${e.toString()}');
+  }
+}
+
+// ---- list_rewrite_rules ----
+Future<Map<String, dynamic>> toolListRewriteRules(Map<String, dynamic> args) async {
+  try {
+    final m = await RequestRewriteManager.instance;
+    final list = m.rules
+        .map((r) => {'enabled': r.enabled, 'name': r.name, 'url': r.url, 'type': r.type.name, 'method': r.method?.name})
+        .toList();
+    return _ok({'total': list.length, 'rules': list});
+  } catch (e) {
+    return _err('list rewrite rules failed: ${e.toString()}');
+  }
+}
+
+// ---- add_rewrite_rule ----
+Future<Map<String, dynamic>> toolAddRewriteRule(Map<String, dynamic> args) async {
+  try {
+    final m = await RequestRewriteManager.instance;
+    final url = args['url'] as String? ?? '';
+    final typeStr = args['ruleType'] as String? ?? 'responseReplace';
+    final name = args['name'] as String?;
+    final body = args['body'] as String?;
+    final redirectUrl = args['redirectUrl'] as String?;
+
+    RuleType type;
+    try {
+      type = RuleType.values.firstWhere((e) => e.name == typeStr);
+    } catch (_) {
+      type = RuleType.responseReplace;
+    }
+
+    final rule = RequestRewriteRule(name: name, url: url, type: type);
+    final items = <RewriteItem>[];
+
+    switch (type) {
+      case RuleType.redirect:
+        if (redirectUrl != null && redirectUrl.isNotEmpty) {
+          items.add(RewriteItem(RewriteType.redirect, true)..redirectUrl = redirectUrl);
+        }
+        break;
+      case RuleType.responseReplace:
+        if (body != null) {
+          items.add(RewriteItem(RewriteType.replaceResponseBody, true)..body = body);
+        }
+        final statusCode = (args['statusCode'] as num?)?.toInt();
+        if (statusCode != null) {
+          items.add(RewriteItem(RewriteType.replaceResponseStatus, true)..statusCode = statusCode);
+        }
+        final headers = args['headers'];
+        if (headers is Map) {
+          items.add(RewriteItem(RewriteType.replaceResponseHeader, true)
+            ..headers = headers.map((k, v) => MapEntry(k.toString(), v.toString())));
+        }
+        break;
+      case RuleType.requestReplace:
+        if (body != null) {
+          items.add(RewriteItem(RewriteType.replaceRequestBody, true)..body = body);
+        }
+        break;
+      case RuleType.responseUpdate:
+        if (body != null) {
+          items.add(RewriteItem(RewriteType.updateBody, true)..body = body);
+        }
+        break;
+      case RuleType.requestUpdate:
+        if (body != null) {
+          items.add(RewriteItem(RewriteType.updateBody, true)..body = body);
+        }
+        break;
+    }
+
+    if (items.isEmpty) {
+      return _err('no rewrite content provided');
+    }
+    await m.addRule(rule, items);
+    return _ok('rewrite rule added');
+  } catch (e) {
+    return _err('add rewrite rule failed: ${e.toString()}');
+  }
+}
+
+// ---- remove_rewrite_rule ----
+Future<Map<String, dynamic>> toolRemoveRewriteRule(Map<String, dynamic> args) async {
+  try {
+    final m = await RequestRewriteManager.instance;
+    final index = _toInt(args, 'index', -1);
+    if (index < 0 || index >= m.rules.length) return _err('index out of range');
+    await m.removeIndex([index]);
+    return _ok('rewrite rule removed');
+  } catch (e) {
+    return _err('remove rewrite rule failed: ${e.toString()}');
   }
 }
