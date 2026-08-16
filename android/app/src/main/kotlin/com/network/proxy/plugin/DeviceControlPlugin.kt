@@ -256,19 +256,35 @@ class DeviceControlPlugin : AndroidFlutterPlugin() {
     }
 
     private fun launchApp(packageName: String): Boolean {
-        return try {
+        // 方式1: getLaunchIntentForPackage(可能被系统拦截, 央视频实测失效)
+        try {
             val pm = activity.packageManager
             val intent = pm.getLaunchIntentForPackage(packageName)
             if (intent != null) {
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 activity.startActivity(intent)
-                true
-            } else {
-                false
+                return true
             }
         } catch (e: Exception) {
-            false
+            // fall through
         }
+        // 方式2: 兜底 - cmd package resolve-activity 查真实入口 → am start -n
+        try {
+            val resolve = runShell(
+                "cmd package resolve-activity --brief -c android.intent.category.LAUNCHER \"$packageName\" 2>/dev/null | tail -1",
+                useSu = true
+            )
+            val entry = (resolve["stdout"] as String? ?: "").trim()
+            if (entry.isNotEmpty() && entry.contains("/")) {
+                val start = runShell("am start -n \"$entry\" 2>&1", useSu = false)
+                val out = start["stdout"] as String? ?: ""
+                // am start 输出含 Starting: 即成功
+                return out.contains("Starting:") || out.contains("Warning")
+            }
+        } catch (e: Exception) {
+            // ignore
+        }
+        return false
     }
 
     private fun takeScreenshot(): Map<String, Any?> {
