@@ -20,6 +20,7 @@ import 'package:proxypin/utils/crypto_body_decoder.dart';
 import 'package:proxypin/network/components/manager/script_manager.dart';
 import 'package:proxypin/network/components/request_breakpoint.dart';
 import 'package:proxypin/network/http/http.dart';
+import 'package:proxypin/network/http/websocket.dart';
 import 'package:proxypin/network/http/http_client.dart';
 import 'package:proxypin/network/channel/host_port.dart';
 import 'package:proxypin/storage/histories.dart';
@@ -713,6 +714,27 @@ Future<(String?, bool, String?)> _tryDecryptBody(HttpMessage message) async {
   return (null, false, null);
 }
 
+/// WebSocket/SSE 帧摘要: 方向 + 类型 + 内容(文本直接给, 二进制给base64)
+Map<String, dynamic> _frameSummary(WebSocketFrame f) {
+  final type = switch (f.opcode) {
+    0x01 => 'text',
+    0x02 => 'binary',
+    0x08 => 'close',
+    0x09 => 'ping',
+    0x0a => 'pong',
+    _ => 'opcode:${f.opcode}',
+  };
+  final payload = f.opcode == 0x02
+      ? 'base64:${base64.encode(f.payloadData)}'
+      : f.payloadDataAsString;
+  return {
+    'dir': f.isFromClient ? 'request' : 'response',
+    'type': type,
+    'time': f.time.millisecondsSinceEpoch,
+    'payload': payload.length > 2000 ? '${payload.substring(0, 2000)}...(共${payload.length}字符)' : payload,
+  };
+}
+
 Future<Map<String, dynamic>> _reqDetail(HttpRequest r) async {
   final resp = r.response;
   // 请求/响应体: 用 getBodyString() 自动解压 gzip/br/deflate(与 App 显示一致),
@@ -754,6 +776,8 @@ Future<Map<String, dynamic>> _reqDetail(HttpRequest r) async {
     'requestContentEncoding': r.headers.contentEncoding,
     if (reqDecryptedHit) 'requestDecryptedText': reqDecrypted,
     if (reqDecryptedHit) 'requestDecryptedRule': reqDecryptedRule,
+    // WebSocket/SSE 帧消息(若有)
+    if (r.messages.isNotEmpty) 'requestMessages': r.messages.map(_frameSummary).toList(),
     'response': resp == null
         ? null
         : {
@@ -765,6 +789,7 @@ Future<Map<String, dynamic>> _reqDetail(HttpRequest r) async {
             'contentEncoding': resp.headers.contentEncoding,
             if (respDecryptedHit) 'decryptedText': respDecrypted,
             if (respDecryptedHit) 'decryptedRule': respDecryptedRule,
+            if (resp.messages.isNotEmpty) 'messages': resp.messages.map(_frameSummary).toList(),
           },
     'requestTime': r.requestTime.millisecondsSinceEpoch,
   };
