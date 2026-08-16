@@ -126,6 +126,20 @@ class HttpProxyChannelHandler extends ChannelHandler<HttpRequest> {
       }
       channelContext.currentRequest = request;
 
+      // 跨域改道重连: 拦截器 onRequest 可能把请求改道到新域名(hostAndPort 变化)。
+      // 若与当前已建连接的 host(缓存)不一致, 说明改道了, 关闭旧连接并重建到新 host,
+      // 否则请求仍从旧隧道(原host)发出导致改道失效(如 baidu 改道 qq 但打到百度返回403)。
+      final reqHp = request?.hostAndPort;
+      final curHost = channelContext.host?.host;
+      if (request != null && request.method != HttpMethod.connect && reqHp != null &&
+          curHost != null && curHost != reqHp.host) {
+        remoteChannel?.close();
+        remoteChannel = null;
+        channelContext.serverChannel = null;
+        remoteChannel = await _getRemoteChannel(channelContext, channel, request);
+        channelContext.serverChannel = remoteChannel;
+      }
+
       listener?.onRequest(channel, request!);
 
       for (var interceptor in interceptors) {
