@@ -13,6 +13,7 @@ import 'package:proxypin/network/components/manager/network_condition_manager.da
 import 'package:proxypin/network/components/manager/request_rewrite_manager.dart';
 import 'package:proxypin/network/components/manager/rewrite_rule.dart';
 import 'package:proxypin/network/components/manager/script_manager.dart';
+import 'package:proxypin/network/components/request_breakpoint.dart';
 import 'package:proxypin/network/http/http.dart';
 import 'package:proxypin/storage/histories.dart';
 import 'package:proxypin/storage/path.dart';
@@ -150,6 +151,36 @@ Future<List<McpToolDefinition>> buildMcpTools() async {
         'required': ['index'],
       },
       handler: toolRemoveBreakpoint,
+    ),
+
+    // ---------------- 断点放行/中止 ----------------
+    McpToolDefinition(
+      name: 'list_pending_intercepts',
+      description: '列出当前挂起中的断点（请求/响应），返回 requestId 与摘要。用于配合 release_intercept / abort_intercepts 操作。',
+      inputSchema: {'type': 'object', 'properties': {}},
+      handler: toolListPendingIntercepts,
+    ),
+    McpToolDefinition(
+      name: 'release_intercept',
+      description: '放行一个挂起的断点。requestId 从 list_pending_intercepts 获取。可选提供 method/uri/headers/body 覆盖原值（空则原样放行）。返回 true 表示成功。',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'requestId': {'type': 'string', 'description': '挂起断点的 requestId（来自 list_pending_intercepts）'},
+          'method': {'type': 'string', 'description': '可选：覆盖请求方法'},
+          'uri': {'type': 'string', 'description': '可选：覆盖请求 URL'},
+          'headers': {'type': 'object', 'description': '可选：覆盖请求头（map，值转字符串）'},
+          'body': {'type': 'string', 'description': '可选：覆盖请求体'},
+        },
+        'required': ['requestId'],
+      },
+      handler: toolReleaseIntercept,
+    ),
+    McpToolDefinition(
+      name: 'abort_intercepts',
+      description: '中止（丢弃）当前所有挂起的断点请求，使其不发出。返回被中止的数量。',
+      inputSchema: {'type': 'object', 'properties': {}},
+      handler: toolAbortIntercepts,
     ),
 
     // ---------------- 代理状态 ----------------
@@ -1245,5 +1276,61 @@ Future<Map<String, dynamic>> toolSetWeakNetworkEnabled(Map<String, dynamic> args
     return _ok({'enabled': m.enabled});
   } catch (e) {
     return _err('set weak network enabled failed: ${e.toString()}');
+  }
+}
+
+// ---- list_pending_intercepts ----
+Future<Map<String, dynamic>> toolListPendingIntercepts(Map<String, dynamic> args) async {
+  try {
+    final bp = RequestBreakpointInterceptor.instance;
+    final reqs = bp.pendingRequestIds().map((id) => bp.pendingRequestSummary(id)).whereType<Map<String, dynamic>>().toList();
+    final resps = bp.pendingResponseIds().map((id) => bp.pendingResponseSummary(id)).whereType<Map<String, dynamic>>().toList();
+    return _ok({'requests': reqs, 'responses': resps, 'total': reqs.length + resps.length});
+  } catch (e) {
+    return _err('list pending intercepts failed: ${e.toString()}');
+  }
+}
+
+// ---- release_intercept ----
+Future<Map<String, dynamic>> toolReleaseIntercept(Map<String, dynamic> args) async {
+  try {
+    final bp = RequestBreakpointInterceptor.instance;
+    final requestId = args['requestId'] as String?;
+    if (requestId == null || requestId.isEmpty) return _err('requestId is required');
+
+    // 收集可选覆盖字段
+    Map<String, dynamic>? modify;
+    if (args['method'] != null || args['uri'] != null || args['headers'] != null || args['body'] != null) {
+      modify = {};
+      if (args['method'] != null) modify['method'] = args['method'];
+      if (args['uri'] != null) modify['uri'] = args['uri'];
+      if (args['headers'] is Map) {
+        modify['headers'] =
+            (args['headers'] as Map).map((k, v) => MapEntry(k.toString(), v.toString()));
+      }
+      if (args['body'] != null) modify['body'] = args['body'];
+    }
+
+    // 请求与响应都可放行
+    if (bp.releaseRequestById(requestId, modify: modify)) {
+      return _ok({'released': 'request', 'requestId': requestId});
+    }
+    if (bp.releaseResponseById(requestId, modify: modify)) {
+      return _ok({'released': 'response', 'requestId': requestId});
+    }
+    return _err('no pending intercept found for requestId: $requestId');
+  } catch (e) {
+    return _err('release intercept failed: ${e.toString()}');
+  }
+}
+
+// ---- abort_intercepts ----
+Future<Map<String, dynamic>> toolAbortIntercepts(Map<String, dynamic> args) async {
+  try {
+    final bp = RequestBreakpointInterceptor.instance;
+    final count = bp.abortAllRequests();
+    return _ok({'aborted': count});
+  } catch (e) {
+    return _err('abort intercepts failed: ${e.toString()}');
   }
 }

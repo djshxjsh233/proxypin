@@ -54,6 +54,11 @@ class ExpiringCache<K, V> {
 
   V? operator [](K key) => get(key);
 
+  /// 当前缓存的全部 key。
+  List<K> get keys => _cache.keys.toList();
+
+  int get length => _cache.length;
+
   V? remove(K key) {
     _expirationTimes[key]?.cancel();
     _expirationTimes.remove(key);

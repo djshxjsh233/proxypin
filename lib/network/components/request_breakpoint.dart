@@ -19,6 +19,13 @@ class RequestBreakpointInterceptor extends Interceptor {
   final ExpiringCache<String, Completer<HttpRequest?>> _pausedRequests = ExpiringCache(Duration(minutes: 10));
   final ExpiringCache<String, Completer<HttpResponse?>> _pausedResponses = ExpiringCache(Duration(minutes: 10));
 
+  /// 挂起中的请求/响应快照数据(toJson),用于 MCP 查看与放行。
+  /// 与 _pausedRequests/_pausedResponses 同 key(requestId),互不冲突。
+  final ExpiringCache<String, Map<String, dynamic>> _pausedRequestData =
+      ExpiringCache(Duration(minutes: 10));
+  final ExpiringCache<String, Map<String, dynamic>> _pausedResponseData =
+      ExpiringCache(Duration(minutes: 10));
+
   RequestBreakpointInterceptor._();
 
   /// 用环境变量渲染 {{name}}。若 EnvironmentManager 未加载或未启用,返回原字符串。
@@ -94,6 +101,7 @@ class RequestBreakpointInterceptor extends Interceptor {
       if (rule.match(url, method: request.method) && rule.interceptRequest) {
         Completer<HttpRequest?> completer = Completer();
         _pausedRequests[request.requestId] = completer;
+        _pausedRequestData[request.requestId] = request.toJson();
 
         // Open Breakpoint Executor Window
         MultiWindow.openWindow("Breakpoint - Request", 'BreakpointExecutor',
@@ -139,6 +147,7 @@ class RequestBreakpointInterceptor extends Interceptor {
       if (rule.match(url, method: request.method) && rule.interceptResponse) {
         Completer<HttpResponse?> completer = Completer();
         _pausedResponses[request.requestId] = completer;
+        _pausedResponseData[request.requestId] = response.toJson();
 
         // Open Breakpoint Executor Window
         MultiWindow.openWindow("Breakpoint - Response", 'BreakpointExecutor', args: {
@@ -179,5 +188,100 @@ class RequestBreakpointInterceptor extends Interceptor {
     if (_pausedResponses.containsKey(requestId)) {
       _pausedResponses.remove(requestId)?.complete(response);
     }
+  }
+
+  // ---- MCP 支持: 查看/放行/中止挂起断点 ----
+
+  /// 挂起中的请求 requestId 列表。
+  List<String> pendingRequestIds() => _pausedRequests.keys.toList();
+
+  /// 挂起中的响应 requestId 列表。
+  List<String> pendingResponseIds() => _pausedResponses.keys.toList();
+
+  /// 挂起请求的摘要信息(用于 MCP 列表展示)。
+  Map<String, dynamic>? pendingRequestSummary(String requestId) {
+    final data = _pausedRequestData[requestId];
+    if (data == null) return null;
+    final headers = data['headers'] is Map ? (data['headers'] as Map).cast<String, dynamic>() : null;
+    return {
+      'requestId': requestId,
+      'type': 'request',
+      'method': data['method'],
+      'url': data['uri'],
+      'host': headers?['host'],
+      'pausedMs': 0,
+    };
+  }
+
+  /// 挂起响应的摘要信息。
+  Map<String, dynamic>? pendingResponseSummary(String requestId) {
+    final data = _pausedResponseData[requestId];
+    if (data == null) return null;
+    final req = _pausedRequestData[requestId];
+    return {
+      'requestId': requestId,
+      'type': 'response',
+      'method': req?['method'],
+      'url': req?['uri'],
+      'status': data['status'],
+    };
+  }
+
+  /// 放行一个挂起的请求。modify 为空时按原样放行;
+  /// 提供 modify 时,其中的 method/uri/headers/body 会覆盖原值。
+  bool releaseRequestById(String requestId, {Map<String, dynamic>? modify}) {
+    if (!_pausedRequests.containsKey(requestId)) return false;
+    final raw = _pausedRequestData[requestId];
+    if (raw == null) return false;
+    try {
+      final merged = Map<String, dynamic>.from(raw);
+      if (modify != null) merged.addAll(modify);
+      final request = HttpRequest.fromJson(merged);
+      resumeRequest(requestId, request);
+      _pausedRequestData.remove(requestId);
+      return true;
+    } catch (_) {
+      // 构造失败则原样放行
+      resumeRequest(requestId, HttpRequest.fromJson(raw));
+      _pausedRequestData.remove(requestId);
+      return true;
+    }
+  }
+
+  /// 放行一个挂起的响应。modify 为空时按原样放行。
+  bool releaseResponseById(String requestId, {Map<String, dynamic>? modify}) {
+    if (!_pausedResponses.containsKey(requestId)) return false;
+    final raw = _pausedResponseData[requestId];
+    if (raw == null) return false;
+    try {
+      final merged = Map<String, dynamic>.from(raw);
+      if (modify != null) merged.addAll(modify);
+      final response = HttpResponse.fromJson(merged);
+      resumeResponse(requestId, response);
+      _pausedResponseData.remove(requestId);
+      return true;
+    } catch (_) {
+      resumeResponse(requestId, HttpResponse.fromJson(raw));
+      _pausedResponseData.remove(requestId);
+      return true;
+    }
+  }
+
+  /// 中止(丢弃)一个挂起的请求。返回 true 表示存在且已中止。
+  bool abortRequestById(String requestId) {
+    if (!_pausedRequests.containsKey(requestId)) return false;
+    _pausedRequestData.remove(requestId);
+    resumeRequest(requestId, null);
+    return true;
+  }
+
+  /// 中止(丢弃)所有挂起的请求。
+  int abortAllRequests() {
+    final ids = _pausedRequests.keys.toList();
+    for (final id in ids) {
+      _pausedRequestData.remove(id);
+      resumeRequest(id, null);
+    }
+    return ids.length;
   }
 }
