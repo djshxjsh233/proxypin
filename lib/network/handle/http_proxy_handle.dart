@@ -204,17 +204,7 @@ class HttpProxyChannelHandler extends ChannelHandler<HttpRequest> {
     //客户端连接 作为缓存
     Channel? remoteChannel = channelContext.serverChannel;
     if (remoteChannel != null) {
-      // 跨域改道检测: 当前请求的 host 与已缓存连接(上游)的 host 不一致时,
-      // 说明请求被拦截后改道到新域名(如 baidu -> qq), 不能复用旧连接, 需强制重建。
-      final cachedHost = channelContext.host?.host;
-      final reqHost = httpRequest.hostAndPort?.host;
-      if (cachedHost != null && reqHost != null && cachedHost != reqHost) {
-        remoteChannel.close();
-        channelContext.serverChannel = null;
-        remoteChannel = null;
-      } else {
-        return remoteChannel;
-      }
+      return remoteChannel;
     }
 
     var hostAndPort = httpRequest.hostAndPort ?? getHostAndPort(httpRequest);
