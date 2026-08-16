@@ -31,58 +31,67 @@ class DeviceControlPlugin : AndroidFlutterPlugin() {
                         val cmd = call.argument<String>("command") ?: ""
                         val useSu = call.argument<Boolean>("use_su") ?: true
                         Thread {
-                            result.success(runShell(cmd, useSu))
+                            val r: Map<String, Any?> = runShell(cmd, useSu)
+                            result.success(r)
                         }.start()
                     }
                     "sqliteQuery" -> {
                         val dbPath = call.argument<String>("dbPath") ?: ""
                         val query = call.argument<String>("query") ?: ""
                         Thread {
-                            result.success(sqliteQuery(dbPath, query))
+                            val r: Map<String, Any?> = sqliteQuery(dbPath, query)
+                            result.success(r)
                         }.start()
                     }
                     "readFile" -> {
                         val path = call.argument<String>("path") ?: ""
                         Thread {
-                            result.success(readFile(path))
+                            val r: Map<String, Any?> = readFile(path)
+                            result.success(r)
                         }.start()
                     }
                     "listDir" -> {
                         val path = call.argument<String>("path") ?: ""
                         Thread {
-                            result.success(listDir(path))
+                            val r: Map<String, Any?> = listDir(path)
+                            result.success(r)
                         }.start()
                     }
                     "writeFile" -> {
                         val path = call.argument<String>("path") ?: ""
                         val content = call.argument<String>("content") ?: ""
                         Thread {
-                            result.success(writeFile(path, content))
+                            val r: Map<String, Any?> = writeFile(path, content)
+                            result.success(r)
                         }.start()
                     }
                     "copyFile" -> {
                         val src = call.argument<String>("src") ?: ""
                         val dst = call.argument<String>("dst") ?: ""
                         Thread {
-                            result.success(copyFile(src, dst))
+                            val r: Map<String, Any?> = copyFile(src, dst)
+                            result.success(r)
                         }.start()
                     }
                     "moveFile" -> {
                         val src = call.argument<String>("src") ?: ""
                         val dst = call.argument<String>("dst") ?: ""
                         Thread {
-                            result.success(moveFile(src, dst))
+                            val r: Map<String, Any?> = moveFile(src, dst)
+                            result.success(r)
                         }.start()
                     }
                     "deleteFile" -> {
                         val path = call.argument<String>("path") ?: ""
                         Thread {
-                            result.success(deleteFile(path))
+                            val r: Map<String, Any?> = deleteFile(path)
+                            result.success(r)
                         }.start()
                     }
                     "getForegroundActivity" -> {
                         Thread {
-                            result.success(runShell("dumpsys activity activities | grep -E 'mResumedActivity|topResumedActivity' | head -3", true))
+                            val r: Map<String, Any?> = runShell("dumpsys activity activities | grep -E 'mResumedActivity|topResumedActivity' | head -3", true)
+                            result.success(r)
                         }.start()
                     }
                     "logcat" -> {
@@ -90,7 +99,8 @@ class DeviceControlPlugin : AndroidFlutterPlugin() {
                         val lines = call.argument<Int>("lines") ?: 200
                         val clear = call.argument<Boolean>("clear") ?: false
                         Thread {
-                            result.success(logcat(pkg, lines, clear))
+                            val r: Map<String, Any?> = logcat(pkg, lines, clear)
+                            result.success(r)
                         }.start()
                     }
                     "launchApp" -> {
@@ -99,19 +109,22 @@ class DeviceControlPlugin : AndroidFlutterPlugin() {
                     }
                     "takeScreenshot" -> {
                         Thread {
-                            result.success(takeScreenshot())
+                            val r: Map<String, Any?> = takeScreenshot()
+                            result.success(r)
                         }.start()
                     }
                     "dumpUi" -> {
                         Thread {
-                            result.success(runShell("uiautomator dump /sdcard/window_dump.xml && cat /sdcard/window_dump.xml"))
+                            val r: Map<String, Any?> = runShell("uiautomator dump /sdcard/window_dump.xml && cat /sdcard/window_dump.xml")
+                            result.success(r)
                         }.start()
                     }
                     "tap" -> {
                         val x = call.argument<Int>("x") ?: 0
                         val y = call.argument<Int>("y") ?: 0
                         Thread {
-                            result.success(runShell("input tap $x $y"))
+                            val r: Map<String, Any?> = runShell("input tap $x $y")
+                            result.success(r)
                         }.start()
                     }
                     "swipe" -> {
@@ -121,13 +134,16 @@ class DeviceControlPlugin : AndroidFlutterPlugin() {
                         val y2 = call.argument<Int>("y2") ?: 0
                         val dur = call.argument<Int>("durationMs") ?: 300
                         Thread {
-                            result.success(runShell("input swipe $x1 $y1 $x2 $y2 $dur"))
+                            val r: Map<String, Any?> = runShell("input swipe $x1 $y1 $x2 $y2 $dur")
+                            result.success(r)
                         }.start()
                     }
                     "inputText" -> {
                         val text = call.argument<String>("text") ?: ""
                         Thread {
-                            result.success(runShell("input text ${escapeShell(text)}"))
+                            val cmd = "input text ${escapeShell(text)}"
+                            val r: Map<String, Any?> = runShell(cmd)
+                            result.success(r)
                         }.start()
                     }
                     else -> result.notImplemented()
