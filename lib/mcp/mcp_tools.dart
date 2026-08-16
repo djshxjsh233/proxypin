@@ -626,19 +626,37 @@ Map<String, dynamic> _reqSummary(HttpRequest r) {
 /// 请求完整详情
 Map<String, dynamic> _reqDetail(HttpRequest r) {
   final resp = r.response;
+  // 请求/响应体: 用 getBodyString() 自动解压 gzip/br/deflate(与 App 显示一致),
+  // 同时提供 bodyBase64 无损原始字节(供解密/签名分析)。
+  String? reqBodyText;
+  String? reqBodyB64;
+  if (r.body != null && r.body!.isNotEmpty) {
+    reqBodyText = r.getBodyString();
+    reqBodyB64 = base64.encode(r.body!);
+  }
+  String? respBodyText;
+  String? respBodyB64;
+  if (resp?.body != null && resp!.body!.isNotEmpty) {
+    respBodyText = resp.getBodyString();
+    respBodyB64 = base64.encode(resp.body!);
+  }
   return {
     'method': r.method.name,
     'url': r.requestUrl,
     'path': r.pathAndQuery,
     'requestHeaders': r.headers.toJson(),
-    'requestBody': r.body == null ? null : utf8.decode(r.body!, allowMalformed: true),
+    'requestBody': reqBodyText,
+    'requestBodyBase64': reqBodyB64,
+    'requestContentEncoding': r.headers.contentEncoding,
     'response': resp == null
         ? null
         : {
             'statusCode': resp.status.code,
             'statusReason': resp.status.reasonPhrase,
             'headers': resp.headers.toJson(),
-            'body': resp.body == null ? null : utf8.decode(resp.body!, allowMalformed: true),
+            'body': respBodyText,
+            'bodyBase64': respBodyB64,
+            'contentEncoding': resp.headers.contentEncoding,
           },
     'requestTime': r.requestTime.millisecondsSinceEpoch,
   };
