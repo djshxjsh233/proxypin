@@ -4,6 +4,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:proxypin/native/installed_apps.dart';
+import 'package:proxypin/native/device_control.dart';
 import 'package:proxypin/native/vpn.dart';
 import 'package:proxypin/network/bin/configuration.dart';
 import 'package:proxypin/network/bin/server.dart';
@@ -387,6 +388,85 @@ Future<List<McpToolDefinition>> buildMcpTools() async {
         },
       },
       handler: toolListInstalledApps,
+    ),
+
+    // ---------------- 设备控制 ----------------
+    McpToolDefinition(
+      name: 'run_device_shell',
+      description: '在设备上执行 shell 命令（优先 root/su，回退普通 sh）。用于启动服务、读写文件、查看进程等。返回 exitCode/stdout/stderr。',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'command': {'type': 'string', 'description': '要执行的 shell 命令'},
+        },
+        'required': ['command'],
+      },
+      handler: toolRunDeviceShell,
+    ),
+    McpToolDefinition(
+      name: 'launch_app',
+      description: '启动指定包名的 App（如 com.kuaishou.nebula）。返回是否启动成功。',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'packageName': {'type': 'string', 'description': 'App 包名'},
+        },
+        'required': ['packageName'],
+      },
+      handler: toolLaunchApp,
+    ),
+    McpToolDefinition(
+      name: 'take_screenshot',
+      description: '截取设备当前屏幕。返回 base64 图片（可直接转存）与文件路径。',
+      inputSchema: {'type': 'object', 'properties': {}},
+      handler: toolTakeScreenshot,
+    ),
+    McpToolDefinition(
+      name: 'get_ui_elements',
+      description: 'dump 当前屏幕 UI 层级（uiautomator XML），用于了解界面结构后定位点击坐标。',
+      inputSchema: {'type': 'object', 'properties': {}},
+      handler: toolGetUiElements,
+    ),
+    McpToolDefinition(
+      name: 'tap_screen',
+      description: '模拟点击屏幕指定坐标（如 tap_screen x=500 y=800）。',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'x': {'type': 'integer', 'description': 'X 坐标'},
+          'y': {'type': 'integer', 'description': 'Y 坐标'},
+        },
+        'required': ['x', 'y'],
+      },
+      handler: toolTapScreen,
+    ),
+    McpToolDefinition(
+      name: 'swipe_screen',
+      description: '模拟滑动屏幕（起点 x1,y1 到终点 x2,y2）。',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'x1': {'type': 'integer', 'description': '起点 X'},
+          'y1': {'type': 'integer', 'description': '起点 Y'},
+          'x2': {'type': 'integer', 'description': '终点 X'},
+          'y2': {'type': 'integer', 'description': '终点 Y'},
+          'durationMs': {'type': 'integer', 'description': '时长毫秒，默认 300'},
+        },
+        'required': ['x1', 'y1', 'x2', 'y2'],
+      },
+      handler: toolSwipeScreen,
+    ),
+    McpToolDefinition(
+      name: 'input_text',
+      description: '模拟键盘输入文本（需焦点在输入框）。',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'text': {'type': 'string', 'description': '要输入的文本'},
+        },
+        'required': ['text'],
+      },
+      handler: toolInputText,
     ),
     McpToolDefinition(
       name: 'get_app_whitelist',
@@ -2064,8 +2144,7 @@ Future<Map<String, dynamic>> toolAnalyzeSignature(Map<String, dynamic> args) asy
 }
 
 // ---- replay_request ----
-Future<Map<String, dynamic>> toolReplayRequest(Map<String, dynamic> args) async {
-  try {
+Future<Map<String, dynamic>> toolReplayRequest(Map<String, dynamic> args) async {  try {
     final url = args['url'] as String?;
     if (url == null || url.isEmpty) return _err('url is required');
 
@@ -2120,5 +2199,108 @@ Future<Map<String, dynamic>> toolReplayRequest(Map<String, dynamic> args) async 
     });
   } catch (e) {
     return _err('replay request failed: ${e.toString()}');
+  }
+}
+
+// ---- 设备控制 ----
+// ---- run_device_shell ----
+Future<Map<String, dynamic>> toolRunDeviceShell(Map<String, dynamic> args) async {
+  try {
+    final cmd = args['command'] as String?;
+    if (cmd == null || cmd.isEmpty) return _err('command is required');
+    final result = await DeviceControl.runShell(cmd);
+    return _ok({
+      'exitCode': result['exitCode'],
+      'stdout': (result['stdout'] as String? ?? '').length > 8000
+          ? (result['stdout'] as String).substring(0, 8000)
+          : result['stdout'],
+      'stderr': result['stderr'],
+    });
+  } catch (e) {
+    return _err('run shell failed: ${e.toString()}');
+  }
+}
+
+// ---- launch_app ----
+Future<Map<String, dynamic>> toolLaunchApp(Map<String, dynamic> args) async {
+  try {
+    final pkg = args['packageName'] as String?;
+    if (pkg == null || pkg.isEmpty) return _err('packageName is required');
+    final ok = await DeviceControl.launchApp(pkg);
+    return _ok({'launched': ok, 'packageName': pkg});
+  } catch (e) {
+    return _err('launch app failed: ${e.toString()}');
+  }
+}
+
+// ---- take_screenshot ----
+Future<Map<String, dynamic>> toolTakeScreenshot(Map<String, dynamic> args) async {
+  try {
+    final result = await DeviceControl.takeScreenshot();
+    if (result['success'] == true) {
+      return _ok({
+        'size': result['size'],
+        'path': result['path'],
+        'base64': result['base64'], // 可转存为图片
+      });
+    }
+    return _err('screenshot failed: ${result['error'] ?? 'unknown'}');
+  } catch (e) {
+    return _err('screenshot failed: ${e.toString()}');
+  }
+}
+
+// ---- get_ui_elements ----
+Future<Map<String, dynamic>> toolGetUiElements(Map<String, dynamic> args) async {
+  try {
+    final result = await DeviceControl.dumpUi();
+    final out = (result['stdout'] as String? ?? '').trim();
+    if (out.isEmpty) return _err('ui dump empty (need screen on & uiautomator available)');
+    return _ok({'xml': out.length > 15000 ? out.substring(0, 15000) : out, 'length': out.length});
+  } catch (e) {
+    return _err('get ui elements failed: ${e.toString()}');
+  }
+}
+
+// ---- tap_screen ----
+Future<Map<String, dynamic>> toolTapScreen(Map<String, dynamic> args) async {
+  try {
+    final x = args['x'] as int?;
+    final y = args['y'] as int?;
+    if (x == null || y == null) return _err('x and y are required');
+    final r = await DeviceControl.tap(x, y);
+    return _ok({'exitCode': r['exitCode'], 'x': x, 'y': y});
+  } catch (e) {
+    return _err('tap failed: ${e.toString()}');
+  }
+}
+
+// ---- swipe_screen ----
+Future<Map<String, dynamic>> toolSwipeScreen(Map<String, dynamic> args) async {
+  try {
+    final x1 = args['x1'] as int?;
+    final y1 = args['y1'] as int?;
+    final x2 = args['x2'] as int?;
+    final y2 = args['y2'] as int?;
+    if (x1 == null || y1 == null || x2 == null || y2 == null) {
+      return _err('x1 y1 x2 y2 are required');
+    }
+    final dur = args['durationMs'] as int? ?? 300;
+    final r = await DeviceControl.swipe(x1, y1, x2, y2, durationMs: dur);
+    return _ok({'exitCode': r['exitCode']});
+  } catch (e) {
+    return _err('swipe failed: ${e.toString()}');
+  }
+}
+
+// ---- input_text ----
+Future<Map<String, dynamic>> toolInputText(Map<String, dynamic> args) async {
+  try {
+    final text = args['text'] as String?;
+    if (text == null || text.isEmpty) return _err('text is required');
+    final r = await DeviceControl.inputText(text);
+    return _ok({'exitCode': r['exitCode'], 'text': text});
+  } catch (e) {
+    return _err('input text failed: ${e.toString()}');
   }
 }
