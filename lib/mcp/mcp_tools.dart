@@ -1741,22 +1741,15 @@ Future<Map<String, dynamic>> toolDetectBodyEncoding(Map<String, dynamic> args) a
     final result = <String, dynamic>{'inputLength': s.length};
 
     // 1. gzip 魔数 (输入可能是原始字节的 base64 或文本里的转义)
-    // 2. JSON 检测 (对原始文本)
-    String? jsonPreview;
-    var isJson = false;
-    try {
-      final decoded = jsonDecode(s);
-      isJson = true;
-      jsonPreview = jsonEncode(decoded);
-    } catch (_) {}
-
     // 3. hex 检测: 偶数长度 + 全部 hex 字符
     final isHex = s.length % 2 == 0 && s.length >= 2 && RegExp(r'^[0-9a-fA-F]+$').hasMatch(s);
 
     // 4. base64 检测: 合法字符集 + 可解码
     Uint8List? b64Bytes;
     var isBase64 = false;
-    if (RegExp(r'^[A-Za-z0-9+/]+={0,2}$').hasMatch(s) && s.length % 4 == 0 && s.length >= 4) {
+    // 纯 hex 字符串不算 base64(它是 hex); 只有含非 hex 字符(+/ 或非等长)才考虑 base64
+    final couldBeB64 = RegExp(r'^[A-Za-z0-9+/]+={0,2}$').hasMatch(s) && s.length % 4 == 0 && s.length >= 4;
+    if (couldBeB64 && !(isHex && RegExp(r'^[0-9a-fA-F]+$').hasMatch(s))) {
       try {
         b64Bytes = base64.decode(s);
         isBase64 = true;
@@ -1765,6 +1758,23 @@ Future<Map<String, dynamic>> toolDetectBodyEncoding(Map<String, dynamic> args) a
 
     // 5. URL 编码检测
     final isUrlEncoded = s.contains('%') && RegExp(r'%[0-9a-fA-F]{2}').hasMatch(s);
+
+    // 5.5 base64 解码后若是 JSON, 也标记 json (如快手 neoParams = base64(JSON))
+    String? jsonPreview;
+    var isJson = false;
+    try {
+      final decoded = jsonDecode(s);
+      isJson = true;
+      jsonPreview = jsonEncode(decoded);
+    } catch (_) {}
+    if (!isJson && b64Bytes != null) {
+      try {
+        final inner = utf8.decode(b64Bytes);
+        final decoded = jsonDecode(inner);
+        isJson = true;
+        jsonPreview = jsonEncode(decoded);
+      } catch (_) {}
+    }
 
     // 6. 疑似 AES 密文: base64 解码后长度 16 对齐且非纯文本
     Uint8List? candidateBytes;
