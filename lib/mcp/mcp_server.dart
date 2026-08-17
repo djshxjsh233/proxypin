@@ -128,10 +128,13 @@ class McpServer {
 
     final result = await _processRpc(body as Map<String, dynamic>?);
     if (result == null) {
-      // MCP 通知类（notifications/*）:服务端按规范不返回任何内容，用 204 空响应。
-      // 若写 200+body:null, 严格客户端(kotlinx sdk)反序列化会抛
-      // "JsonNull is not a JsonObject"(rikkahub 连不上 pin 的根因)。
+      // MCP 通知类（notifications/*）:服务端按规范不返回任意内容，用 204 空响应。
+      // 若写 200+body:null, 严格客户端(kotlinx sdk)反序列化抛 "JsonNull is not a JsonObject"。
+      // 且 204 响应必须不带 Content-Type 头: kotlin MCP SDK 对"Content-Type=null + 空body"
+      // 的响应安全 return; 若为 text/plain 则抛 "Unexpected content type: text/plain; charset=utf-8"。
+      // (实测 Dart 默认给 204 加 text/plain, 需置 contentType=null 清除)
       request.response.statusCode = HttpStatus.noContent;
+      request.response.headers.contentType = null;
       await request.response.close();
       return;
     }
