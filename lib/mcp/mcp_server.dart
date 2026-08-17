@@ -119,13 +119,22 @@ class McpServer {
     if (body is List) {
       final results = <dynamic>[];
       for (final item in body) {
-        results.add(await _processRpc(item as Map<String, dynamic>?));
+        final r = await _processRpc(item as Map<String, dynamic>?);
+        if (r != null) results.add(r); // 通知类(返回null)在批量中跳过，不回 body
       }
       await _writeJson(request.response, results);
       return;
     }
 
     final result = await _processRpc(body as Map<String, dynamic>?);
+    if (result == null) {
+      // MCP 通知类（notifications/*）:服务端按规范不返回任何内容，用 204 空响应。
+      // 若写 200+body:null, 严格客户端(kotlinx sdk)反序列化会抛
+      // "JsonNull is not a JsonObject"(rikkahub 连不上 pin 的根因)。
+      request.response.statusCode = HttpStatus.noContent;
+      await request.response.close();
+      return;
+    }
     await _writeJson(request.response, result);
   }
 
